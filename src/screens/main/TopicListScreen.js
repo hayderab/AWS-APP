@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, FlatList, TouchableOpacity, Image, useWindowDimensions, Animated } from 'react-native';
 import { Text, Card, Searchbar, Chip, useTheme, Divider, ActivityIndicator, Surface, IconButton } from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -78,84 +78,129 @@ const TopicListScreen = ({ route, navigation }) => {
     setFilteredTopics(filtered);
   };
 
-  const renderTopicItem = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => {
-        if (isTablet) {
-          setSelectedTopic(item);
-        } else {
-          navigation.navigate('TopicDetail', { 
-            topic: item,
-            title: item.title
-          });
-        }
-      }}
-      style={[
-        styles.topicCard, 
-        selectedTopic?.id === item.id && isTablet && styles.selectedTopicCard
-      ]}
-    >
-      <Surface 
-        style={styles.topicCardSurface} 
-        elevation={1}
+  // Animated Topic Card component for smooth animations
+  const AnimatedTopicCard = React.memo(({ item, onPress, isSelected, theme }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    
+    const onPressIn = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 0.97,
+        friction: 5,
+        tension: 40,
+        useNativeDriver: true,
+      }).start();
+    };
+    
+    const onPressOut = () => {
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 3,
+        tension: 40,
+        useNativeDriver: true,
+      }).start();
+    };
+    
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={0.9}
+        style={styles.topicCard}
       >
-        <View style={styles.topicHeader}>
-          <View style={styles.topicTitleContainer}>
-            <Text 
-              variant="titleMedium" 
-              style={[
-                styles.topicTitle,
-                selectedTopic?.id === item.id && isTablet && { color: theme.colors.primary }
-              ]}
-            >
-              {item.title}
-            </Text>
-            {item.certificationTitle && (
-              <Text variant="bodySmall" style={styles.certificationTitle}>
-                {item.certificationTitle}
-              </Text>
-            )}
-          </View>
-          <MaterialCommunityIcons 
-            name="chevron-right" 
-            size={24} 
-            color={selectedTopic?.id === item.id && isTablet ? theme.colors.primary : theme.colors.onSurfaceVariant} 
-          />
-        </View>
-        
-        <Text variant="bodyMedium" style={styles.topicDescription} numberOfLines={2}>
-          {item.description || 'No description available'}
-        </Text>
-        
-        {item.subtopics && (
-          <View style={styles.subtopicsContainer}>
-            <Text variant="bodySmall" style={styles.subtopicsLabel}>
-              {item.subtopics.length} Subtopics:
-            </Text>
-            <View style={styles.chipsContainer}>
-              {item.subtopics.slice(0, 3).map((subtopic, index) => (
-                <Chip 
-                  key={`${subtopic.id || 'subtopic'}-${index}`}
-                  style={styles.subtopicChip}
-                  textStyle={{ fontSize: 12 }}
+        <Animated.View style={{ 
+          transform: [{ scale: scaleAnim }],
+        }}>
+          <Surface 
+            style={[
+              styles.topicCardSurface,
+              isSelected && { borderLeftWidth: 4, borderLeftColor: theme.colors.primary }
+            ]} 
+            elevation={2}
+          >
+            <View style={styles.topicHeader}>
+              <View style={styles.topicTitleContainer}>
+                <Text 
+                  variant="titleMedium" 
+                  style={[
+                    styles.topicTitle,
+                    isSelected && { color: theme.colors.primary }
+                  ]}
                 >
-                  {subtopic.title}
-                </Chip>
-              ))}
-              {item.subtopics.length > 3 && (
-                <Chip 
-                  style={styles.moreChip}
-                  textStyle={{ fontSize: 12, color: theme.colors.primary }}
-                >
-                  +{item.subtopics.length - 3} more
-                </Chip>
-              )}
+                  {item.title}
+                </Text>
+                {item.certificationTitle && (
+                  <Text variant="bodySmall" style={styles.certificationTitle}>
+                    {item.certificationTitle}
+                  </Text>
+                )}
+              </View>
+              <MaterialCommunityIcons 
+                name="chevron-right" 
+                size={24} 
+                color={isSelected ? theme.colors.primary : theme.colors.onSurfaceVariant} 
+              />
             </View>
-          </View>
-        )}
-      </Surface>
-    </TouchableOpacity>
-  );
+            
+            <Text variant="bodyMedium" style={styles.topicDescription} numberOfLines={2}>
+              {item.description || 'No description available'}
+            </Text>
+            
+            {item.subtopics && (
+              <View style={styles.subtopicsContainer}>
+                <Text variant="bodySmall" style={styles.subtopicsLabel}>
+                  {item.subtopics.length} Subtopics:
+                </Text>
+                <View style={styles.chipsContainer}>
+                  {item.subtopics.slice(0, 3).map((subtopic, index) => (
+                    <Chip 
+                      key={`${subtopic.id || 'subtopic'}-${index}`}
+                      style={styles.subtopicChip}
+                      textStyle={{ fontSize: 12 }}
+                    >
+                      {subtopic.title}
+                    </Chip>
+                  ))}
+                  {item.subtopics.length > 3 && (
+                    <Chip 
+                      style={styles.moreChip}
+                      textStyle={{ fontSize: 12, color: theme.colors.primary }}
+                    >
+                      +{item.subtopics.length - 3} more
+                    </Chip>
+                  )}
+                </View>
+              </View>
+            )}
+          </Surface>
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  });
+
+  const renderTopicItem = ({ item }) => {
+    const isSelected = selectedTopic?.id === item.id && isTablet;
+    
+    const handlePress = () => {
+      if (isTablet) {
+        setSelectedTopic(item);
+      } else {
+        navigation.navigate('TopicDetail', { 
+          topic: item,
+          title: item.title
+        });
+      }
+    };
+    
+    return (
+      <AnimatedTopicCard
+        item={item}
+        onPress={handlePress}
+        isSelected={isSelected}
+        theme={theme}
+      />
+    );
+  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
@@ -330,12 +375,11 @@ const styles = StyleSheet.create({
   },
   selectedTopicCard: {
     borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
   },
   topicCardSurface: {
     borderRadius: 8,
     padding: 16,
+    overflow: 'hidden',
   },
   topicHeader: {
     flexDirection: 'row',

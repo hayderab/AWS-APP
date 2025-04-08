@@ -144,6 +144,296 @@ const processPdfWithGemini = async (fileUri, fileName) => {
 };
 
 /**
+ * Generates AI-powered learning enhancement content using Google Gemini
+ * @param {string} contentType - Type of content to generate (tips, explanation, analogies)
+ * @param {Object} subtopic - The subtopic object
+ * @param {string} topicTitle - The parent topic title
+ * @returns {Promise<Object>} - The generated content in structured format
+ */
+const generateLearningContent = async (contentType, subtopic, topicTitle) => {
+  try {
+    // Check if we should use the Gemini API or fallback to mock data
+    if (!USE_GEMINI_API || GEMINI_API_KEY === "YOUR_GEMINI_API_KEY") {
+      console.log('Using mock data (Gemini API disabled or no valid API key)');
+      return getMockLearningContent(contentType, subtopic, topicTitle);
+    }
+
+    // Initialize the Gemini API client
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    
+    // Get the model
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-pro",
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2048
+      }
+    });
+    
+    let prompt = '';
+    
+    switch (contentType) {
+      case 'tips':
+        prompt = `
+          You are an AWS certification expert. Generate 5 practical tips and tricks for the AWS concept: "${subtopic.title}" 
+          which is part of the "${topicTitle}" topic.
+          
+          Include exam-focused tips, common pitfalls to avoid, and practical advice for implementation.
+          
+          Format your response as a JSON object with the following structure:
+          {
+            "title": "Tips & Tricks for ${subtopic.title}",
+            "tips": [
+              {
+                "heading": "Remember the Key Points",
+                "content": "Detailed explanation of the tip..."
+              },
+              // more tips...
+            ]
+          }
+          
+          Here's some context about the subtopic:
+          ${subtopic.content || "No additional context available."}
+          
+          Respond ONLY with the JSON object, no other text.
+        `;
+        break;
+        
+      case 'explanation':
+        prompt = `
+          You are an AWS certification expert. Provide a simple, clear explanation of the AWS concept: "${subtopic.title}" 
+          which is part of the "${topicTitle}" topic.
+          
+          Break down the concept into its core components and explain how it works in simple terms.
+          
+          Format your response as a JSON object with the following structure:
+          {
+            "title": "${subtopic.title} Explained Simply",
+            "sections": [
+              {
+                "heading": "What it is",
+                "content": "Clear explanation of what ${subtopic.title} is..."
+              },
+              {
+                "heading": "Why it matters",
+                "content": "Explanation of importance..."
+              },
+              {
+                "heading": "How it works",
+                "content": "Step-by-step explanation...",
+                "steps": ["Step 1...", "Step 2...", "Step 3..."]
+              },
+              {
+                "heading": "Key components",
+                "content": "Overview of components...",
+                "components": ["Component 1...", "Component 2...", "Component 3..."]
+              },
+              {
+                "heading": "When to use it",
+                "content": "Scenarios when ${subtopic.title} is valuable..."
+              }
+            ]
+          }
+          
+          Here's some context about the subtopic:
+          ${subtopic.content || "No additional context available."}
+          
+          Respond ONLY with the JSON object, no other text.
+        `;
+        break;
+        
+      case 'analogies':
+        prompt = `
+          You are an AWS certification expert. Create 4 helpful real-world analogies to explain the AWS concept: "${subtopic.title}" 
+          which is part of the "${topicTitle}" topic.
+          
+          Use analogies from different domains to help learners understand this concept through familiar examples.
+          
+          Format your response as a JSON object with the following structure:
+          {
+            "title": "Understanding ${subtopic.title} Through Analogies",
+            "analogies": [
+              {
+                "domain": "Restaurant",
+                "analogy": "If AWS is a restaurant, then ${subtopic.title} is like..."
+              },
+              {
+                "domain": "Transportation",
+                "analogy": "Think of ${subtopic.title} as a traffic system..."
+              },
+              {
+                "domain": "Building",
+                "analogy": "${subtopic.title} is similar to the foundation of a skyscraper..."
+              },
+              {
+                "domain": "Team Sports",
+                "analogy": "In a soccer team, ${subtopic.title} would be the midfielder..."
+              }
+            ]
+          }
+          
+          Here's some context about the subtopic:
+          ${subtopic.content || "No additional context available."}
+          
+          Respond ONLY with the JSON object, no other text.
+        `;
+        break;
+        
+      default:
+        throw new Error('Invalid content type');
+    }
+    
+    console.log(`Generating ${contentType} content with Gemini API...`);
+    
+    // Generate content from the model
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    
+    const response = await result.response;
+    const responseText = response.text();
+    
+    console.log(`Received ${contentType} content from Gemini API`);
+    
+    // Parse the JSON response
+    // We need to extract just the JSON part from the response, as Gemini might include additional text
+    const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/) || 
+                     responseText.match(/{[\s\S]*}/);
+    
+    let parsedResponse;
+    if (jsonMatch) {
+      // If the response is wrapped in markdown code blocks, extract just the JSON
+      parsedResponse = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+    } else {
+      // If no JSON found, try to parse the entire response
+      try {
+        parsedResponse = JSON.parse(responseText);
+      } catch (error) {
+        console.error('Failed to parse JSON response:', error);
+        // Return the raw text as a fallback
+        return {
+          title: contentType === 'tips' ? `Tips & Tricks for ${subtopic.title}` :
+                 contentType === 'explanation' ? `${subtopic.title} Explained Simply` :
+                 `Understanding ${subtopic.title} Through Analogies`,
+          rawContent: responseText
+        };
+      }
+    }
+    
+    return parsedResponse;
+  } catch (error) {
+    console.error('Error generating learning content with Gemini:', error);
+    // Fallback to mock content in case of error
+    return getMockLearningContent(contentType, subtopic, topicTitle);
+  }
+};
+
+/**
+ * Generates mock learning content when Gemini API is not available
+ * @param {string} contentType - Type of content to generate (tips, explanation, analogies)
+ * @param {Object} subtopic - The subtopic object
+ * @param {string} topicTitle - The parent topic title
+ * @returns {Object} - The generated mock content in structured format
+ */
+const getMockLearningContent = (contentType, subtopic, topicTitle) => {
+  switch (contentType) {
+    case 'tips':
+      return {
+        title: `Tips & Tricks for ${subtopic.title}`,
+        tips: [
+          {
+            heading: "Remember the Key Points",
+            content: `${subtopic.title} is critical for the ${topicTitle} section of AWS certification. Focus on understanding how it integrates with other services.`
+          },
+          {
+            heading: "Common Exam Scenario",
+            content: `You'll often see questions asking about scaling ${subtopic.title} in high-traffic situations. Remember that horizontal scaling is usually preferred.`
+          },
+          {
+            heading: "Practice Point",
+            content: `Try implementing ${subtopic.title} in a test environment before the exam. Hands-on experience significantly improves retention.`
+          },
+          {
+            heading: "Gotcha to Avoid",
+            content: `Many candidates confuse ${subtopic.title} with similar services. Remember that its primary purpose is ${subtopic.content ? subtopic.content.substring(0, 50) + '...' : 'to provide specialized functionality'}.`
+          },
+          {
+            heading: "Quick Reference",
+            content: `Create flashcards specifically for ${subtopic.title} terminology and limits - these are common exam targets.`
+          }
+        ]
+      };
+      
+    case 'explanation':
+      return {
+        title: `${subtopic.title} Explained Simply`,
+        sections: [
+          {
+            heading: "What it is",
+            content: `${subtopic.title} is a core AWS service that helps you ${subtopic.content ? subtopic.content.substring(0, 100) + '...' : 'manage cloud resources efficiently'}.`
+          },
+          {
+            heading: "Why it matters",
+            content: `In the context of ${topicTitle}, understanding ${subtopic.title} is essential because it provides the foundation for building scalable and reliable cloud architectures.`
+          },
+          {
+            heading: "How it works",
+            content: "The service works in three main steps:",
+            steps: [
+              "First, AWS provisions the necessary resources",
+              "Then, the service configures according to your specifications",
+              "Finally, it integrates with other AWS services in your architecture"
+            ]
+          },
+          {
+            heading: "Key components",
+            content: "The service consists of several important components:",
+            components: [
+              "Resource management layer",
+              "Configuration interface",
+              "Monitoring and logging systems",
+              "Integration endpoints"
+            ]
+          },
+          {
+            heading: "When to use it",
+            content: `${subtopic.title} is particularly valuable when you need to implement solutions that require high availability, fault tolerance, or specific performance characteristics.`
+          }
+        ]
+      };
+      
+    case 'analogies':
+      return {
+        title: `Understanding ${subtopic.title} Through Analogies`,
+        analogies: [
+          {
+            domain: "Restaurant",
+            analogy: `If AWS is a restaurant, then ${subtopic.title} is like the kitchen staff. Just as chefs prepare meals according to orders, ${subtopic.title} provisions resources according to your specifications.`
+          },
+          {
+            domain: "Transportation",
+            analogy: `Think of ${subtopic.title} as a traffic control system. Just as traffic lights coordinate vehicles to prevent congestion, ${subtopic.title} coordinates resources to prevent bottlenecks in your application.`
+          },
+          {
+            domain: "Building",
+            analogy: `${subtopic.title} is similar to the foundation of a skyscraper. Without a solid foundation, the building cannot stand tall and withstand environmental challenges. Similarly, without properly configured ${subtopic.title}, your AWS architecture may not handle load or failures gracefully.`
+          },
+          {
+            domain: "Team Sports",
+            analogy: `In a soccer team, ${subtopic.title} would be the midfielder - connecting defense and offense, distributing resources (the ball), and ensuring the whole team functions cohesively.`
+          }
+        ]
+      };
+      
+    default:
+      return {
+        title: 'Content not available',
+        error: 'Invalid content type'
+      };
+  }
+};
+
+/**
  * Returns the AWS Machine Learning certification data
  * @param {string} certificationName - The name of the certification
  * @returns {Object} - The ML certification data
@@ -369,5 +659,6 @@ const getMlCertificationData = (certificationName) => {
 };
 
 export default {
-  processPdfWithGemini
+  processPdfWithGemini,
+  generateLearningContent
 };
