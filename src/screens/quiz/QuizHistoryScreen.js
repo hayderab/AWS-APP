@@ -3,6 +3,7 @@ import { View, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
 import { Text, Card, Button, Divider, IconButton, useTheme, ActivityIndicator, Surface, List, FAB } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import LocalDatabase from '../../services/LocalDatabase';
+import MongoDatabase from '../../services/MongoDatabase';
 import QuizTypesImport from '../../services/quiz/QuizTypes';
 
 const QuizHistoryScreen = ({ navigation }) => {
@@ -20,7 +21,7 @@ const QuizHistoryScreen = ({ navigation }) => {
   const loadQuizHistory = async () => {
     try {
       setLoading(true);
-      const history = await LocalDatabase.quizService.getQuizHistory();
+      const history = await MongoDatabase.quizService.getQuizHistory();
       setQuizHistory(history);
     } catch (error) {
       console.error('Error loading quiz history:', error);
@@ -32,7 +33,7 @@ const QuizHistoryScreen = ({ navigation }) => {
   const handleClearHistory = async () => {
     try {
       setLoading(true);
-      await LocalDatabase.quizService.clearQuizHistory();
+      await MongoDatabase.quizService.clearQuizHistory();
       setQuizHistory([]);
       setSelectedQuiz(null);
     } catch (error) {

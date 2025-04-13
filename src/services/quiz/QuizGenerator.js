@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import QuizTypesImport from './QuizTypes';
-import LocalDatabase from '../LocalDatabase';
+// import LocalDatabase from '../LocalDatabase';
+import { MongoDatabase } from '../MongoDatabase'; // Ensure proper import of MongoDatabase
 import { GEMINI_API_KEY } from '../../config/env';
 
 class QuizGenerator {
@@ -9,12 +10,11 @@ class QuizGenerator {
       this.genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       // Use the thinking-capable model for more thoughtful quiz generation
       this.model = this.genAI.getGenerativeModel({
-        model: "gemini-1.5-pro", // Fallback to a known working model
+        model: "gemini-2.0-flash", // Fallback to a known working model
         generationConfig: {
           temperature: 0.9,
           topP: 0.95,
           topK: 64,
-          maxOutputTokens: 8192
         }
       });
       console.log('QuizGenerator initialized with fallback model. Checking available models...');
@@ -39,7 +39,7 @@ class QuizGenerator {
       
       // Just use the fallback model instead of trying to list models
       // This avoids the error with listModels() which might not be available in all environments
-      console.log(`Using fallback model: gemini-1.5-pro`);
+      // console.log(`Using fallback model: gemini-1.5-pro`);
       
       // No need to change the model as we're already using the fallback
       return;
@@ -49,9 +49,9 @@ class QuizGenerator {
     }
   }
 
-  async generateQuiz(topic, subtopic, numberOfQuestions = 5) { // numberOfQuestions is unused currently
+  async generateQuiz(topic, subtopic, numberOfQuestions = 10) {
     try {
-      console.log('Generating quiz for topic:', topic.title, 'subtopic:', subtopic.title);
+      console.log('Generating quiz for topic:', topic.title, 'subtopic:', subtopic.title, 'with', numberOfQuestions, 'questions');
 
       // Ensure the model was initialized
       if (!this.model) {
@@ -65,7 +65,6 @@ class QuizGenerator {
             temperature: 0.9,
             topP: 0.95,
             topK: 64,
-            maxOutputTokens: 8192
           },
           history: [
             {
@@ -78,16 +77,16 @@ class QuizGenerator {
                   Subtopic: ${subtopic.title}
                   Content: ${subtopic.content}
 
-                  Please generate EXACTLY 5 questions with the following distribution:
-                  1. One Multiple Choice question (one correct answer from four options)
-                  2. One Multiple Response question (two or more correct answers from five or more options)
-                  3. One Ordering question (3-5 items that must be placed in the correct order)
-                  4. One Matching question (3-5 prompts to match with responses)
-                  5. One Case Study question (scenario with 2 related questions, each sub-question being multiple choice)
+                  Please generate ${numberOfQuestions} questions with a mix of the following types:
+                  - Multiple Choice questions (one correct answer from four options)
+                  - Multiple Response questions (two or more correct answers from five or more options)
+                  - Ordering questions (3-5 items that must be placed in the correct order)
+                  - Matching questions (3-5 prompts to match with responses)
+                  - Case Study questions (scenario with 2 related questions, each sub-question being multiple choice)
 
                   Each question should be directly relevant to AWS and the topic provided, match the AWS exam format and difficulty, and include detailed explanations.
 
-                  EXTREMELY IMPORTANT: Your response MUST be a valid, complete JSON array with exactly 5 questions. 
+                  EXTREMELY IMPORTANT: Your response MUST be a valid, complete JSON array with exactly ${numberOfQuestions} questions. 
                   Do not include any text before or after the JSON array.
                   Do not use markdown code blocks.
                   Start your response with [ and end with ].
@@ -157,7 +156,7 @@ class QuizGenerator {
         // Send a message to get the questions
         console.log('Sending message to chat session...');
         // More specific message to ensure proper JSON formatting
-        const result = await chatSession.sendMessage("Generate the 5 AWS questions now as a valid JSON array. Remember to return ONLY the JSON array with no additional text, markdown formatting, or code blocks. Start with '[' and end with ']'. Ensure all JSON is properly formatted with no syntax errors.");
+        const result = await chatSession.sendMessage(`Generate the ${numberOfQuestions} AWS questions now as a valid JSON array. Remember to return ONLY the JSON array with no additional text, markdown formatting, or code blocks. Start with '[' and end with ']'. Ensure all JSON properties are properly quoted.`);
         const responseText = result.response.text();
 
         // Log the full response for debugging
@@ -227,110 +226,107 @@ class QuizGenerator {
             console.error(responseText); // Log the full problematic response
             console.error('--- End Response Text ---');
             
-            // Try a fallback approach - look for any JSON array in the text
+            // Try a more robust fallback approach
             try {
-                console.log('Attempting fallback JSON extraction...');
-                const fallbackMatch = responseText.match(/\[\s*\{[\s\S]*?\}\s*\]/g);
-                if (fallbackMatch && fallbackMatch.length > 0) {
-                    const potentialJson = fallbackMatch[0];
-                    console.log('Found potential JSON:', potentialJson.substring(0, 100) + '...');
-                    
-                    // Validate JSON structure before parsing
-                    if (!potentialJson.endsWith(']')) {
-                        console.error('JSON appears to be incomplete - missing closing bracket');
-                        throw new Error('Incomplete JSON structure');
-                    }
+                console.log('Attempting robust fallback JSON extraction...');
+                
+                // First, clean up the response text
+                let cleanedText = responseText
+                    .replace(/```json/g, '')  // Remove markdown code markers
+                    .replace(/```/g, '')      // Remove markdown code markers
+                    .replace(/\\n/g, ' ')     // Replace newline chars with spaces
+                    .trim();                  // Trim whitespace
+                
+                // Find the first '[' and last ']' to extract the JSON array
+                const startIndex = cleanedText.indexOf('[');
+                const endIndex = cleanedText.lastIndexOf(']');
+                
+                if (startIndex !== -1 && endIndex !== -1 && startIndex < endIndex) {
+                    const jsonCandidate = cleanedText.substring(startIndex, endIndex + 1);
+                    console.log('Extracted JSON candidate:', jsonCandidate.substring(0, 100) + '...');
                     
                     try {
-                        questions = JSON.parse(potentialJson);
-                        console.log('Fallback parsing succeeded!');
+                        // Try to parse the extracted JSON
+                        questions = JSON.parse(jsonCandidate);
+                        console.log('Fallback JSON parsing succeeded!');
                     } catch (jsonError) {
                         console.error('JSON parsing error:', jsonError);
                         
                         // Try to fix common JSON issues
-                        let fixedJson = potentialJson
-                            .replace(/,\s*\]/g, ']') // Remove trailing commas in arrays
-                            .replace(/,\s*\}/g, '}') // Remove trailing commas in objects
-                            .replace(/\\/g, '\\\\') // Escape backslashes
-                            .replace(/([^\\])"/g, '$1\\"') // Escape unescaped quotes
-                            .replace(/\\\\"/g, '\\"'); // Fix double escaped quotes
-                            
+                        let fixedJson = jsonCandidate
+                            .replace(/,\s*\]/g, ']')         // Remove trailing commas in arrays
+                            .replace(/,\s*\}/g, '}')         // Remove trailing commas in objects
+                            .replace(/([^\\])"([^"]*?)"/g, '$1"$2"'); // Fix unescaped quotes within strings
+                        
                         try {
                             questions = JSON.parse(fixedJson);
                             console.log('Fixed JSON parsing succeeded!');
                         } catch (fixError) {
-                            // If we still can't parse it, try a more aggressive approach
                             console.error('Fixed JSON parsing failed:', fixError);
                             
-                            // Try to extract individual questions and rebuild the array
-                            const questionMatches = responseText.match(/\{\s*"question_type"[\s\S]*\}\s*(?=,|\])/g);
+                            // If we still can't parse it, try to construct a valid array from individual questions
+                            const questionMatches = cleanedText.match(/\{\s*"question_type"[^{]*?(?=\}\s*,|\}\s*\])/g);
+                            
                             if (questionMatches && questionMatches.length > 0) {
                                 console.log(`Found ${questionMatches.length} individual questions to reconstruct`);
+                                
+                                // Add closing braces to each question
+                                const completeQuestions = questionMatches.map(q => q + '}');
+                                
+                                // Reconstruct the array
+                                const reconstructedJson = '[' + completeQuestions.join(',') + ']';
+                                
                                 try {
-                                    // Reconstruct the array
-                                    const reconstructedJson = '[' + questionMatches.join(',') + ']';
                                     questions = JSON.parse(reconstructedJson);
                                     console.log('Reconstructed JSON parsing succeeded!');
                                 } catch (reconstructError) {
                                     console.error('Reconstructed JSON parsing failed:', reconstructError);
-                                    throw new Error('Failed to parse quiz questions from API response');
+                                    
+                                    // Last resort: create a minimal valid question set
+                                    console.log('Creating minimal valid question set as fallback');
+                                    questions = this.createFallbackQuestions(numberOfQuestions, topic, subtopic);
                                 }
                             } else {
-                                throw new Error('Failed to parse quiz questions from API response');
+                                // Last resort: create a minimal valid question set
+                                console.log('Creating minimal valid question set as fallback');
+                                questions = this.createFallbackQuestions(numberOfQuestions, topic, subtopic);
                             }
                         }
                     }
                 } else {
-                    // This is a parsing error, not an API error - throw a specific error
-                    const parsingError = new Error('Failed to parse quiz questions from API response');
-                    parsingError.isParsingError = true; // Add a flag to identify parsing errors
-                    throw parsingError;
+                    // Last resort: create a minimal valid question set
+                    console.log('JSON array markers not found. Creating minimal valid question set as fallback');
+                    questions = this.createFallbackQuestions(numberOfQuestions, topic, subtopic);
                 }
             } catch (fallbackError) {
                 console.error('Fallback extraction failed:', fallbackError);
-                // This is a parsing error, not an API error - throw a specific error
-                const parsingError = new Error('Failed to parse quiz questions from API response');
-                parsingError.isParsingError = true; // Add a flag to identify parsing errors
-                throw parsingError;
+                // Last resort: create a minimal valid question set
+                console.log('Creating minimal valid question set as final fallback');
+                questions = this.createFallbackQuestions(numberOfQuestions, topic, subtopic);
             }
         }
 
-        // --- Rest of your validation and processing logic ---
-        // Verify we have all question types and exactly 5 questions
+        // Verify we have all question types and exactly numberOfQuestions questions
         if (!Array.isArray(questions)) {
            throw new Error(`Parsed result is not an array. Type: ${typeof questions}`);
         }
 
-        if (questions.length !== 5) {
-          console.warn(`Expected 5 questions but got ${questions.length}.`);
-          // Depending on strictness, you might throw an error or try to proceed
-          // For now, let's throw an error if the count is wrong, as requested in the prompt
-           throw new Error(`Expected exactly 5 questions, but received ${questions.length}.`);
+        // We're now more lenient about the number of questions
+        if (questions.length < 1) {
+          console.warn(`Expected at least one question but got ${questions.length}.`);
+          throw new Error(`No questions were generated. Please try again.`);
         }
-
-        // Check that we have one of each type (adjust check if needed)
-        const typesInResponse = questions.map(q => q.question_type);
-        const expectedTypes = ['Multiple Choice', 'Multiple Response', 'Ordering', 'Matching', 'Case Study'];
-        const missingTypes = expectedTypes.filter(type => !typesInResponse.includes(type));
-        const extraTypes = typesInResponse.filter(type => !expectedTypes.includes(type)); // Should be empty
-        const typeCounts = typesInResponse.reduce((acc, type) => { acc[type] = (acc[type] || 0) + 1; return acc; }, {});
-
-        if (missingTypes.length > 0) {
-            console.error("Missing question types:", missingTypes);
-            console.error("Received types:", typeCounts);
-            throw new Error(`Missing required question types: ${missingTypes.join(', ')}`);
+        
+        if (questions.length !== numberOfQuestions) {
+          console.warn(`Expected ${numberOfQuestions} questions but got ${questions.length}.`);
+          // Just warn but don't throw an error - we'll work with what we have
         }
-        if (Object.values(typeCounts).some(count => count > 1)) {
-             console.error("Duplicate question types detected:", typeCounts);
-             throw new Error(`Duplicate question types found. Expected one of each. Received: ${JSON.stringify(typeCounts)}`);
-        }
-
 
         // Convert the JSON format to our internal question format
         const questionObjects = questions.map(q => this.createQuestionFromJSONFormat(q));
 
         // Save to quiz history
-        await LocalDatabase.quizService.saveQuizToHistory({
+        await MongoDatabase.quizService.saveQuizToHistory({
           topicId: topic.id,
           topicTitle: topic.title,
           subtopicId: subtopic.id,
@@ -357,6 +353,35 @@ class QuizGenerator {
       // Rethrow the error so the caller knows something went wrong
       throw error;
     }
+  }
+
+  // Create fallback questions when JSON parsing fails
+  createFallbackQuestions(count, topic, subtopic) {
+    console.log(`Creating ${count} fallback questions for ${topic.title} - ${subtopic.title}`);
+    
+    // Create a basic multiple choice question
+    const createBasicQuestion = (index) => {
+      return {
+        question_type: "Multiple Choice",
+        question_text: `Question ${index + 1}: This is a fallback question about ${subtopic.title}. The actual question generation failed.`,
+        options: [
+          { id: "A", text: "First option related to the topic" },
+          { id: "B", text: "Second option related to the topic" },
+          { id: "C", text: "Third option related to the topic" },
+          { id: "D", text: "Fourth option related to the topic" }
+        ],
+        correct_answer: "A",
+        explanation: `This is a fallback explanation for ${subtopic.title}. Please try generating questions again.`
+      };
+    };
+    
+    // Create the specified number of questions
+    const questions = [];
+    for (let i = 0; i < count; i++) {
+      questions.push(createBasicQuestion(i));
+    }
+    
+    return questions;
   }
 
   // Keep your createQuestionFromJSONFormat, mapQuestionData, createQuestionFromJSON, getConstructorArgs methods as they are.

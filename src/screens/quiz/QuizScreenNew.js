@@ -25,6 +25,9 @@ const QuizScreen = ({ route, navigation }) => {
   // States for specific question types
   const [orderItems, setOrderItems] = useState([]);
   const [matchingPairs, setMatchingPairs] = useState([]);
+  const [selectedResponse, setSelectedResponse] = useState(null);
+  const [selectedPrompt, setSelectedPrompt] = useState(null);
+  const [showResponseSelector, setShowResponseSelector] = useState(false);
 
   // Load questions when component mounts
   useEffect(() => {
@@ -163,17 +166,20 @@ const QuizScreen = ({ route, navigation }) => {
 
   // Handle matching selections
   const handleMatchingSelection = (prompt, response) => {
-    const newPairs = [...matchingPairs];
-    const existingPairIndex = newPairs.findIndex(pair => pair.prompt === prompt);
+    // First, remove any existing pair with this prompt
+    const updatedPairs = matchingPairs.filter(pair => pair.prompt !== prompt);
     
-    if (existingPairIndex >= 0) {
-      newPairs[existingPairIndex] = { prompt, response };
-    } else {
-      newPairs.push({ prompt, response });
-    }
+    // Also remove any pair that already has this response to ensure 1:1 mapping
+    const filteredPairs = updatedPairs.filter(pair => pair.response !== response);
     
+    // Add the new pair
+    const newPairs = [...filteredPairs, { prompt, response }];
     setMatchingPairs(newPairs);
-    handleAnswer(newPairs);
+    
+    // If all prompts have been matched, update the user answer
+    if (newPairs.length === currentQuestion.prompts.length) {
+      handleAnswer(newPairs);
+    }
   };
 
   // Get current question
@@ -250,64 +256,170 @@ const QuizScreen = ({ route, navigation }) => {
   // Render ordering question
   const renderOrdering = () => (
     <View style={styles.orderingContainer}>
+      <Text style={styles.orderingInstructions}>
+        Arrange the items in the correct order by dragging them up or down.
+      </Text>
+      
       {orderItems.map((item, index) => (
-        <Surface key={index} style={styles.orderingItem}>
-          <Text style={styles.orderingNumber}>{index + 1}</Text>
-          <Text style={styles.orderingText}>{item}</Text>
-          <View style={styles.orderingButtonContainer}>
+        <Surface 
+          key={index} 
+          style={[
+            styles.orderingItem,
+            { borderLeftWidth: 4, borderLeftColor: '#4285f4' }
+          ]}
+        >
+          <View style={styles.orderingItemContent}>
+            <Text style={styles.orderingNumber}>{index + 1}</Text>
+            <Text style={styles.orderingText}>{item}</Text>
+          </View>
+          
+          <View style={styles.orderingButtons}>
             <IconButton
               icon="arrow-up"
-              size={20}
+              size={24}
+              mode="contained"
+              containerColor="#e8f0fe"
+              iconColor="#4285f4"
               disabled={index === 0}
               onPress={() => handleReorder(item, 'up')}
             />
             <IconButton
               icon="arrow-down"
-              size={20}
+              size={24}
+              mode="contained"
+              containerColor="#e8f0fe"
+              iconColor="#4285f4"
               disabled={index === orderItems.length - 1}
               onPress={() => handleReorder(item, 'down')}
             />
           </View>
         </Surface>
       ))}
+      
+      {/* Reset order button */}
+      <Button 
+        mode="outlined" 
+        onPress={() => {
+          // Reset to random order
+          setOrderItems([...currentQuestion.items].sort(() => Math.random() - 0.5));
+          handleAnswer(null);
+        }}
+        style={styles.resetOrderButton}
+      >
+        Reset Order
+      </Button>
     </View>
   );
 
   // Render matching question
   const renderMatching = () => (
     <View style={styles.matchingContainer}>
+      <Text style={styles.matchingInstructions}>Match each item with its correct option by selecting from the dropdown.</Text>
+      
       {currentQuestion.prompts.map((prompt, index) => (
-        <Surface key={index} style={styles.choiceContainer}>
+        <Surface key={index} style={styles.matchingItemContainer}>
           <Text style={styles.matchingPrompt}>{prompt}</Text>
-          <RadioButton.Group
-            onValueChange={value => handleMatchingSelection(prompt, value)}
-            value={matchingPairs.find(pair => pair.prompt === prompt)?.response}
-          >
-            {currentQuestion.responses.map((response, responseIndex) => (
-              <Surface key={responseIndex} style={styles.choiceContainer}>
-                <RadioButton.Item
-                  label={response}
-                  value={response}
-                  position="leading"
-                />
-              </Surface>
-            ))}
-          </RadioButton.Group>
+          
+          <View style={styles.matchingDropdownContainer}>
+            <Button
+              mode="outlined"
+              onPress={() => {
+                setSelectedResponse(null);
+                setSelectedPrompt(prompt);
+                setShowResponseSelector(true);
+              }}
+              style={styles.matchDropdownButton}
+            >
+              {matchingPairs.find(pair => pair.prompt === prompt)?.response || "Select an option"}
+            </Button>
+            
+            {matchingPairs.find(pair => pair.prompt === prompt) && (
+              <IconButton
+                icon="close"
+                size={20}
+                onPress={() => {
+                  const updatedPairs = matchingPairs.filter(pair => pair.prompt !== prompt);
+                  setMatchingPairs(updatedPairs);
+                  handleAnswer(updatedPairs.length === currentQuestion.prompts.length ? updatedPairs : null);
+                }}
+              />
+            )}
+          </View>
         </Surface>
       ))}
+      
+      {/* Response selector modal */}
+      <Portal>
+        <Dialog
+          visible={showResponseSelector}
+          onDismiss={() => setShowResponseSelector(false)}
+        >
+          <Dialog.Title>Select the matching option</Dialog.Title>
+          <Dialog.Content>
+            <ScrollView style={styles.responseScrollView}>
+              {currentQuestion.responses.map((response, index) => {
+                // Check if this response is already matched to another prompt
+                const matchedPrompt = matchingPairs.find(pair => pair.response === response)?.prompt;
+                const isDisabled = matchedPrompt && matchedPrompt !== selectedPrompt;
+                
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.responseOption,
+                      isDisabled && styles.disabledResponseOption
+                    ]}
+                    onPress={() => {
+                      if (!isDisabled) {
+                        handleMatchingSelection(selectedPrompt, response);
+                        setShowResponseSelector(false);
+                      }
+                    }}
+                    disabled={isDisabled}
+                  >
+                    <Text style={styles.responseOptionText}>{response}</Text>
+                    {isDisabled && (
+                      <Text style={styles.alreadyMatchedText}>
+                        Already matched with: {matchedPrompt}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setShowResponseSelector(false)}>Cancel</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      
+      {/* Clear all matches button */}
+      {matchingPairs.length > 0 && (
+        <Button 
+          mode="text" 
+          onPress={() => {
+            setMatchingPairs([]);
+            handleAnswer(null);
+          }}
+          style={styles.clearMatchesButton}
+        >
+          Clear All Matches
+        </Button>
+      )}
     </View>
   );
 
   // Render case study question
   const renderCaseStudy = () => (
     <View style={styles.caseStudyContainer}>
-      <Surface style={styles.scenarioCard}>
+      <View style={styles.scenarioCard}>
         <Text style={styles.scenarioTitle}>Scenario:</Text>
         <Text style={styles.scenarioContent}>{currentQuestion.scenario}</Text>
-      </Surface>
+      </View>
       
       {currentQuestion.subQuestions.map((subQuestion, subIndex) => (
-        <Surface key={subIndex} style={styles.subQuestionCard}>
+        <View key={subIndex} style={styles.subQuestionCard}>
           <Text style={styles.subQuestionTitle}>Question {subIndex + 1}:</Text>
           <Text style={styles.subQuestionText}>{subQuestion.question}</Text>
           
@@ -321,13 +433,13 @@ const QuizScreen = ({ route, navigation }) => {
               value={userAnswers[currentQuestionIndex]?.[subIndex]}
             >
               {subQuestion.choices.map((choice, choiceIndex) => (
-                <Surface key={choiceIndex} style={styles.subChoiceContainer}>
+                <View key={choiceIndex} style={styles.subChoiceContainer}>
                   <RadioButton.Item
                     label={choice}
                     value={choice}
                     position="leading"
                   />
-                </Surface>
+                </View>
               ))}
             </RadioButton.Group>
           )}
@@ -335,7 +447,7 @@ const QuizScreen = ({ route, navigation }) => {
           {subQuestion.type === 'MultipleResponseQuestion' && (
             <View>
               {subQuestion.choices.map((choice, choiceIndex) => (
-                <Surface key={choiceIndex} style={styles.subChoiceContainer}>
+                <View key={choiceIndex} style={styles.subChoiceContainer}>
                   <Checkbox.Item
                     label={choice}
                     status={
@@ -357,11 +469,11 @@ const QuizScreen = ({ route, navigation }) => {
                       handleAnswer(newAnswers);
                     }}
                   />
-                </Surface>
+                </View>
               ))}
             </View>
           )}
-        </Surface>
+        </View>
       ))}
     </View>
   );
@@ -1071,9 +1183,50 @@ const styles = StyleSheet.create({
   matchingContainer: {
     marginBottom: 16,
   },
-  matchingPrompt: {
-    fontWeight: 'bold',
+  matchingInstructions: {
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  matchingItemContainer: {
     marginBottom: 8,
+    borderRadius: 8,
+    overflow: 'hidden',
+    padding: 16,
+  },
+  matchingPrompt: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  matchingDropdownContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  matchDropdownButton: {
+    flex: 1,
+    marginRight: 8,
+  },
+  responseScrollView: {
+    maxHeight: 200,
+  },
+  responseOption: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eeeeee',
+  },
+  disabledResponseOption: {
+    backgroundColor: '#eeeeee',
+    opacity: 0.5,
+  },
+  responseOptionText: {
+    fontSize: 16,
+  },
+  alreadyMatchedText: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  clearMatchesButton: {
+    marginTop: 16,
   },
   scenarioCard: {
     marginBottom: 16,
@@ -1269,6 +1422,36 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     color: '#333333',
+  },
+  orderingItemContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  orderingInstructions: {
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  resetOrderButton: {
+    marginTop: 16,
+  },
+  promptOption: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eeeeee',
+  },
+  promptOptionText: {
+    fontSize: 16,
+  },
+  matchedPromptOption: {
+    backgroundColor: '#e6ffed',
+  },
+  alreadyMatchedText: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  clearMatchesButton: {
+    marginTop: 16,
   },
 });
 

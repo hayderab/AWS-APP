@@ -3,7 +3,8 @@ import { View, StyleSheet, ScrollView, TouchableOpacity, Linking, useWindowDimen
 import { Text, Card, Divider, Button, useTheme, Surface, IconButton, List, Portal, Dialog, Alert, Chip, SegmentedButtons } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import LocalDatabase from '../../services/LocalDatabase';
+// import LocalDatabase from '../../services/LocalDatabase';
+import MongoDatabase from '../../services/MongoDatabase';
 import QuizGenerator from '../../services/quiz/QuizGenerator';
 import GeminiService from '../../services/GeminiService';
 
@@ -29,7 +30,7 @@ const TopicDetailScreen = ({ route, navigation }) => {
     const loadNotes = async () => {
       try {
         setLoading(true);
-        const topicNotes = await LocalDatabase.note.getNotesByTopic(topic.id);
+        const topicNotes = await MongoDatabase.note.getNotesByTopic(topic.id);
         setNotes(topicNotes || []);
       } catch (error) {
         console.error('Error loading notes:', error);
@@ -203,6 +204,97 @@ const TopicDetailScreen = ({ route, navigation }) => {
     }
   };
 
+  // Function to generate quiz for a specific subtopic
+  const handleSubtopicQuiz = async (subtopic) => {
+    try {
+      // Show loading dialog
+      setQuizLoadingVisible(true);
+      setGeneratingQuiz(true);
+      setQuizLoadingProgress(`Initializing quiz generator for "${subtopic.title}"...`);
+      
+      // Small delay to ensure the dialog is visible
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Generate questions for the specific subtopic
+      setQuizLoadingProgress('Generating questions...');
+      let attempts = 0;
+      let generatedQuestions = null;
+      
+      // Try up to 3 times to generate questions
+      while (attempts < 3 && (!generatedQuestions || generatedQuestions.length < 5)) {
+        attempts++;
+        try {
+          setQuizLoadingProgress(`Generating quiz (attempt ${attempts}/3)...`);
+          generatedQuestions = await QuizGenerator.generateQuiz(
+            topic,
+            subtopic,
+            10  // Use the default number of questions (now 10)
+          );
+          
+          if (generatedQuestions && generatedQuestions.length > 0) {
+            // Log the question types we're passing to the quiz screen
+            console.log('Question types being passed to quiz screen:', 
+              generatedQuestions.map(q => ({type: q.type, question: q.question.substring(0, 30) + '...'}))
+            );
+            break;
+          } else {
+            setQuizLoadingProgress(`No questions generated. Retrying (${attempts}/3)...`);
+          }
+        } catch (error) {
+          console.error(`Error on attempt ${attempts}:`, error);
+          
+          // Only retry for specific error types that indicate a Gemini API issue
+          if (error.message && (
+              error.message.includes('API request failed') || 
+              error.message.includes('network error') ||
+              error.message.includes('timeout') ||
+              error.message.includes('rate limit') ||
+              error.message.includes('Missing question types') ||
+              error.message.includes('Not enough questions generated')
+          )) {
+            setQuizLoadingProgress(`API error. Retrying (${attempts}/3)...`);
+          } else {
+            // For parsing errors or other client-side issues, show error and stop retrying
+            setQuizLoadingProgress(`Error: ${error.message}`);
+            throw error; // Re-throw to exit the loop
+          }
+        }
+      }
+      
+      setQuizLoadingProgress('Quiz ready! Launching quiz...');
+      
+      // Hide loading dialog
+      setQuizLoadingVisible(false);
+      setGeneratingQuiz(false);
+      
+      // If we have questions, navigate to the quiz screen
+      if (generatedQuestions && generatedQuestions.length > 0) {
+        // Navigate to the quiz screen with the generated questions
+        navigation.navigate('Quiz', {
+          topic,
+          subtopic,
+          preGeneratedQuestions: generatedQuestions
+        });
+      } else {
+        // Show error if we couldn't generate questions
+        Alert.alert(
+          'Quiz Generation Failed',
+          'Unable to generate quiz questions after multiple attempts. Please try again later.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error generating quiz:', error);
+      setQuizLoadingVisible(false);
+      setGeneratingQuiz(false);
+      Alert.alert(
+        'Quiz Generation Error',
+        `An error occurred while generating the quiz: ${error.message}`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
   // Function to generate AI-powered learning enhancements
   const generateAiContent = async (subtopicId, contentType) => {
     // Update loading state for this specific subtopic and content type
@@ -221,11 +313,16 @@ const TopicDetailScreen = ({ route, navigation }) => {
       
       // Check if content already exists
       if (aiContent[subtopicId]?.[contentType]) {
-        // If content already exists, just update the content type
-        setAiContentType(prev => ({
-          ...prev,
-          [subtopicId]: contentType
-        }));
+        // If content already exists, just switch to it
+        // Otherwise, generate it
+        if (subtopicAiContentObj?.[value]) {
+          setAiContentType(prev => ({
+            ...prev,
+            [subtopicId]: value
+          }));
+        } else {
+          generateAiContent(subtopicId, value);
+        }
       } else {
         // Use Gemini API to generate content
         const response = await GeminiService.generateLearningContent(contentType, subtopic, topic.title);
@@ -827,6 +924,15 @@ const TopicDetailScreen = ({ route, navigation }) => {
                       >
                         Share
                       </Button>
+                      
+                      <Button 
+                        mode="contained" 
+                        icon="help-circle" 
+                        onPress={() => handleSubtopicQuiz(subtopic)}
+                        style={styles.actionButton}
+                      >
+                        Practice Quiz
+                      </Button>
                     </View>
                   </View>
                 </List.Accordion>
@@ -838,16 +944,6 @@ const TopicDetailScreen = ({ route, navigation }) => {
         </View>
 
         <View style={styles.actionsContainer}>
-          <Button 
-            mode="contained" 
-            icon="help-circle" 
-            onPress={handlePracticeQuiz}
-            style={[styles.footerButton, { backgroundColor: theme.colors.primary }]}
-            disabled={generatingQuiz}
-          >
-            {generatingQuiz ? 'Generating Quiz...' : 'Practice Quiz'}
-          </Button>
-          
           <Button 
             mode="outlined" 
             icon="history" 
@@ -938,8 +1034,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   subtopicContent: {
-    padding: 16,
     paddingTop: 0,
+    paddingBottom: 16,
+    paddingLeft: 7,
+    paddingRight: 7,
   },
   contentText: {
     marginBottom: 16,
@@ -1005,8 +1103,8 @@ const styles = StyleSheet.create({
     flex: 0.48,
   },
   aiEnhancementsContainer: {
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 8,
+    marginBottom: 4,
   },
   aiButtonsContainer: {
     flexDirection: 'row',
@@ -1046,8 +1144,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   aiContentContainer: {
-    marginTop: 16,
-    marginBottom: 16,
+    marginTop: 8,
+    marginBottom: 8,
     backgroundColor: '#ffffff',
     borderRadius: 12,
     padding: 16,
@@ -1055,10 +1153,12 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     width: '100%',
     maxWidth: '100%',
+    marginHorizontal: 0,
   },
   aiContentTextContainer: {
     width: '100%',
     maxWidth: '100%',
+    marginHorizontal: 0,
   },
   aiContentText: {
     marginBottom: 12,

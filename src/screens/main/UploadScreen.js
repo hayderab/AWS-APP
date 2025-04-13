@@ -4,7 +4,8 @@ import { Text, Button, Card, ProgressBar, useTheme, Chip } from 'react-native-pa
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { useAuth } from '../../context/AuthContext';
-import LocalDatabase from '../../services/LocalDatabase';
+// import LocalDatabase from '../../services/LocalDatabase';
+import MongoDatabase from '../../services/MongoDatabase';
 import GeminiService from '../../services/GeminiService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -132,7 +133,7 @@ const UploadScreen = ({ navigation }) => {
       }
 
       // Save the certification to the local database
-      await LocalDatabase.certification.addCertification(certificationData);
+      await MongoDatabase.certification.addCertification(certificationData);
       
       // Also save to recentCertifications for the home screen
       try {
@@ -166,7 +167,7 @@ const UploadScreen = ({ navigation }) => {
           certificationId: certificationData.id
         };
         
-        const savedTopic = await LocalDatabase.topic.addTopic(topicData);
+        const savedTopic = await MongoDatabase.topic.addTopic(topicData);
         
         // Save subtopics
         if (topic.subtopics && topic.subtopics.length > 0) {
@@ -176,7 +177,7 @@ const UploadScreen = ({ navigation }) => {
               topicId: savedTopic.id
             };
             
-            await LocalDatabase.subtopic.addSubtopic(subtopicData);
+            await MongoDatabase.subtopic.addSubtopic(subtopicData);
           }
         }
       }

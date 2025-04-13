@@ -1,9 +1,11 @@
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../context/AuthContext';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import LoadingScreen from '../screens/LoadingScreen';
+import { isWeb } from '../utils/platformUtils';
 
 const Stack = createNativeStackNavigator();
 
@@ -14,6 +16,7 @@ const RootNavigator = () => {
     return <LoadingScreen />;
   }
 
+  // For all platforms, use the standard layout
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {user ? (

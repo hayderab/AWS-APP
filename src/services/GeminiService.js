@@ -34,11 +34,13 @@ const processPdfWithGemini = async (fileUri, fileName) => {
     
     // Get the model - using a stable model that's definitely available
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-pro", // Using a stable model that's definitely available
+      model: "gemini-2.0-flash", // Using a stable model that's definitely available
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 8192
-      }
+        temperature: 0.7,
+      },
+      config: {
+      tools: [{googleSearch: {}}],
+    }
     });
     
     const certificationName = fileName.replace('.pdf', '');
@@ -47,9 +49,9 @@ const processPdfWithGemini = async (fileUri, fileName) => {
       I have an AWS certification guide for "${certificationName}". 
       Please analyze this certification and provide me with:
       
-      1. A list of 5-7 main topics that would be covered in this certification
-      2. For each topic, provide 2-3 subtopics
-      3. For each subtopic, provide a brief content description and 1-2 relevant resources
+      1. A list of main topics that would be covered in this certification
+      2. For each topic, provide  subtopics they are related to those main topics
+      3. For each subtopic, provide a  content description and few  relevant resources such as blogs, videos (from Official AWS Youtube Channel, No rickrolling please), and articles
       
       Format the response as a JSON object with the following structure:
       {
@@ -163,10 +165,9 @@ const generateLearningContent = async (contentType, subtopic, topicTitle) => {
     
     // Get the model
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-pro",
+      model: "gemini-2.0-flash",
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048
       }
     });
     

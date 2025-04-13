@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Dimensions } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
 import { Text, Card, Searchbar, useTheme, Divider, IconButton, FAB, Portal, Dialog, TextInput, Button } from 'react-native-paper';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
+import MongoDatabase from '../../services/MongoDatabase';
 
 const NotesScreen = ({ route, navigation }) => {
   const { topicId, topicTitle } = route.params || {};
@@ -33,21 +33,10 @@ const NotesScreen = ({ route, navigation }) => {
       
       if (topicId) {
         // Load notes for a specific topic
-        const storedNotes = await AsyncStorage.getItem(`notes_${topicId}`);
-        if (storedNotes) {
-          allNotes = JSON.parse(storedNotes);
-        }
+        allNotes = await MongoDatabase.note.getNotesByTopic(topicId);
       } else {
         // Load all notes across all topics
-        const keys = await AsyncStorage.getAllKeys();
-        const noteKeys = keys.filter(key => key.startsWith('notes_'));
-        
-        for (const key of noteKeys) {
-          const storedNotes = await AsyncStorage.getItem(key);
-          if (storedNotes) {
-            allNotes = [...allNotes, ...JSON.parse(storedNotes)];
-          }
-        }
+        allNotes = await MongoDatabase.note.getAllNotes();
       }
       
       // Sort notes by most recent first
@@ -113,33 +102,25 @@ const NotesScreen = ({ route, navigation }) => {
     if (!selectedNote) return;
     
     try {
-      const noteTopicId = selectedNote.topicId;
-      const storedNotes = await AsyncStorage.getItem(`notes_${noteTopicId}`);
+      await MongoDatabase.note.deleteNote(selectedNote._id);
       
-      if (storedNotes) {
-        let topicNotes = JSON.parse(storedNotes);
-        topicNotes = topicNotes.filter(note => note.id !== selectedNote.id);
-        
-        await AsyncStorage.setItem(`notes_${noteTopicId}`, JSON.stringify(topicNotes));
-        
-        // Update the notes list
-        const updatedNotes = notes.filter(note => note.id !== selectedNote.id);
-        setNotes(updatedNotes);
-        setFilteredNotes(
-          searchQuery ? 
-            updatedNotes.filter(note => 
-              note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
-            ) : 
-            updatedNotes
-        );
-        
-        // Select another note if available
-        if (updatedNotes.length > 0) {
-          setSelectedNote(updatedNotes[0]);
-        } else {
-          setSelectedNote(null);
-        }
+      // Update the notes list
+      const updatedNotes = notes.filter(note => note._id !== selectedNote._id);
+      setNotes(updatedNotes);
+      setFilteredNotes(
+        searchQuery ? 
+          updatedNotes.filter(note => 
+            note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
+          ) : 
+          updatedNotes
+      );
+      
+      // Select another note if available
+      if (updatedNotes.length > 0) {
+        setSelectedNote(updatedNotes[0]);
+      } else {
+        setSelectedNote(null);
       }
     } catch (error) {
       console.error('Error deleting note:', error);
@@ -157,64 +138,41 @@ const NotesScreen = ({ route, navigation }) => {
     try {
       if (editMode && selectedNote) {
         // Update existing note
-        const noteTopicId = selectedNote.topicId;
-        const storedNotes = await AsyncStorage.getItem(`notes_${noteTopicId}`);
-        
-        if (storedNotes) {
-          let topicNotes = JSON.parse(storedNotes);
-          
-          // Find and update the note
-          topicNotes = topicNotes.map(note => 
-            note.id === selectedNote.id ? 
-              { ...note, text: editedNoteText, timestamp: new Date().toISOString() } : 
-              note
-          );
-          
-          await AsyncStorage.setItem(`notes_${noteTopicId}`, JSON.stringify(topicNotes));
-          
-          // Update the notes list
-          const updatedNotes = notes.map(note => 
-            note.id === selectedNote.id ? 
-              { ...note, text: editedNoteText, timestamp: new Date().toISOString() } : 
-              note
-          );
-          
-          setNotes(updatedNotes);
-          setFilteredNotes(
-            searchQuery ? 
-              updatedNotes.filter(note => 
-                note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
-              ) : 
-              updatedNotes
-          );
-          
-          // Update selected note
-          setSelectedNote({ ...selectedNote, text: editedNoteText, timestamp: new Date().toISOString() });
-        }
-      } else if (topicId) {
-        // Create new note
-        const newNote = {
-          id: Date.now().toString(),
-          topicId: topicId,
-          subtopicId: null, // General note for the topic
-          subtopicTitle: topicTitle || 'General Note',
-          text: editedNoteText,
-          timestamp: new Date().toISOString(),
-        };
-        
-        // Get existing notes for this topic
-        const storedNotes = await AsyncStorage.getItem(`notes_${topicId}`);
-        const topicNotes = storedNotes ? JSON.parse(storedNotes) : [];
-        
-        // Add the new note
-        topicNotes.push(newNote);
-        
-        // Save updated notes
-        await AsyncStorage.setItem(`notes_${topicId}`, JSON.stringify(topicNotes));
+        const updatedNote = await MongoDatabase.note.updateNote(
+          selectedNote._id, 
+          { ...selectedNote, text: editedNoteText, timestamp: new Date().toISOString() }
+        );
         
         // Update the notes list
-        const updatedNotes = [newNote, ...notes];
+        const updatedNotes = notes.map(note => 
+          note._id === selectedNote._id ? updatedNote : note
+        );
+        
+        setNotes(updatedNotes);
+        setFilteredNotes(
+          searchQuery ? 
+            updatedNotes.filter(note => 
+              note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+              note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
+            ) : 
+            updatedNotes
+        );
+        
+        setSelectedNote(updatedNote);
+      } else {
+        // Create new note
+        const newNote = {
+          topicId: topicId,
+          subtopicId: null, 
+          subtopicTitle: topicTitle || 'General',
+          text: editedNoteText,
+          timestamp: new Date().toISOString()
+        };
+        
+        const savedNote = await MongoDatabase.note.addNote(newNote);
+        
+        // Update the notes list
+        const updatedNotes = [savedNote, ...notes];
         setNotes(updatedNotes);
         setFilteredNotes(
           searchQuery ? 
@@ -226,7 +184,7 @@ const NotesScreen = ({ route, navigation }) => {
         );
         
         // Select the new note
-        setSelectedNote(newNote);
+        setSelectedNote(savedNote);
       }
     } catch (error) {
       console.error('Error saving note:', error);
@@ -240,7 +198,7 @@ const NotesScreen = ({ route, navigation }) => {
       onPress={() => selectNote(item)}
       style={[
         styles.noteItem,
-        selectedNote && selectedNote.id === item.id ? 
+        selectedNote && selectedNote._id === item._id ? 
           { backgroundColor: `${theme.colors.primary}10` } : 
           null
       ]}
@@ -338,7 +296,7 @@ const NotesScreen = ({ route, navigation }) => {
             <FlatList
               data={filteredNotes}
               renderItem={renderNoteItem}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item) => item._id}
               contentContainerStyle={styles.notesList}
               ListEmptyComponent={renderEmptyList}
               ItemSeparatorComponent={() => <Divider />}
@@ -370,7 +328,7 @@ const NotesScreen = ({ route, navigation }) => {
           <FlatList
             data={filteredNotes}
             renderItem={renderNoteItem}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item._id}
             contentContainerStyle={styles.notesList}
             ListEmptyComponent={renderEmptyList}
             ItemSeparatorComponent={() => <Divider />}
@@ -443,8 +401,6 @@ const NotesScreen = ({ route, navigation }) => {
     </View>
   );
 };
-
-import { ScrollView } from 'react-native';
 
 const styles = StyleSheet.create({
   container: {

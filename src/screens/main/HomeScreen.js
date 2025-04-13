@@ -6,6 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import LocalDatabase from '../../services/LocalDatabase';
 
+import MongoDatabase from '../../services/MongoDatabase';
+
 const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
   const theme = useTheme();
@@ -57,7 +59,7 @@ const HomeScreen = ({ navigation }) => {
           onPress: async () => {
             try {
               // Delete from LocalDatabase
-              await LocalDatabase.certification.deleteCertification(certificationId);
+              await MongoDatabase.certification.deleteCertification(certificationId);
               
               // Delete from recentCertifications in AsyncStorage
               const updatedCerts = recentCertifications.filter(cert => cert.id !== certificationId);

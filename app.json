@@ -17,7 +17,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.awstutor.certificationtutor",
-      "buildNumber": "1.0.0"
+      "buildNumber": "1.0.0",
+      "infoPlist": {
+        "UIBackgroundModes": ["fetch"],
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to allow you to upload images for your notes and profile.",
+        "NSCameraUsageDescription": "This app needs access to your camera to allow you to take photos for your notes and profile."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,12 +37,13 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.INTERNET"
-      ]
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
-    "newArchEnabled": true,
     "plugins": [
       "expo-document-picker",
       "expo-file-system"
