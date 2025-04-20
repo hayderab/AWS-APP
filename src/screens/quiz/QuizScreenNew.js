@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Text, Button, Card, RadioButton, Checkbox, Surface, List, IconButton, ActivityIndicator, Portal, Dialog } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, ScrollView, Dimensions, Alert, Platform, TouchableOpacity } from 'react-native';
+import { Text, Button, Card, RadioButton, Checkbox, ProgressBar, IconButton, Dialog, Portal, ActivityIndicator, useTheme, Surface } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import QuizGenerator from '../../services/quiz/QuizGenerator';
 import { QuizTypes } from '../../services/quiz/QuizTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ApiService from '../../services/ApiService';
 
 const QuizScreen = ({ route, navigation }) => {
   const { topic, preGeneratedQuestions } = route.params || {};
@@ -21,6 +22,7 @@ const QuizScreen = ({ route, navigation }) => {
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
   const [quizResults, setQuizResults] = useState(null);
   const [confirmSubmitVisible, setConfirmSubmitVisible] = useState(false);
+  const [timeSpent, setTimeSpent] = useState(0);
   
   // States for specific question types
   const [orderItems, setOrderItems] = useState([]);
@@ -31,7 +33,7 @@ const QuizScreen = ({ route, navigation }) => {
 
   // Load questions when component mounts
   useEffect(() => {
-    if (!preGeneratedQuestions) {
+    if (!preGeneratedQuestions || preGeneratedQuestions.length === 0) {
       loadQuestions();
     } else {
       console.log('Received pre-generated questions:', 
@@ -42,8 +44,18 @@ const QuizScreen = ({ route, navigation }) => {
         }))
       );
       
+      // Set the questions from the pre-generated ones
+      setQuestions(preGeneratedQuestions);
+      
+      // Initialize user answers array
+      setUserAnswers(new Array(preGeneratedQuestions.length).fill(null));
+      
       // Initialize state for first question based on its type
-      initializeQuestionState(preGeneratedQuestions[0]);
+      if (preGeneratedQuestions[0]) {
+        initializeQuestionState(preGeneratedQuestions[0]);
+      }
+      
+      setLoading(false);
     }
     
     // Add this to see the current question when it changes
@@ -76,6 +88,13 @@ const QuizScreen = ({ route, navigation }) => {
       console.log('Last question answered, enabling Submit All button');
     }
   }, [userAnswers, currentQuestionIndex, questions.length]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      setTimeSpent(timeSpent + 1);
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [timeSpent]);
 
   // Initialize state based on question type
   const initializeQuestionState = (question) => {
@@ -674,8 +693,8 @@ const QuizScreen = ({ route, navigation }) => {
         }
       });
       
-      // Save quiz with all necessary data
-      history.push({
+      // Create quiz history object
+      const quizHistoryObject = {
         id: Date.now().toString(),
         date: new Date().toISOString(),
         topic: topic?.title || 'AWS Quiz',
@@ -688,10 +707,37 @@ const QuizScreen = ({ route, navigation }) => {
         totalQuestions: results.totalQuestions,
         questions: questionsData,
         timestamp: Date.now()
-      });
+      };
       
+      // Save to local AsyncStorage
+      history.push(quizHistoryObject);
       await AsyncStorage.setItem('quizHistory', JSON.stringify(history));
-      console.log('Quiz history saved successfully');
+      console.log('Quiz history saved successfully to AsyncStorage');
+      
+      // Save to MongoDB using ApiService
+      try {
+        // Save quiz to history
+        await ApiService.quiz.saveToHistory(quizHistoryObject);
+        console.log('Quiz history saved successfully to MongoDB');
+        
+        // Save quiz result
+        const quizResultData = {
+          quizId: quizHistoryObject.id,
+          score: results.score,
+          answers: results.results.map(result => ({
+            questionId: result.question.substring(0, 20), // Use part of the question as ID
+            userAnswer: result.userAnswer,
+            isCorrect: result.isCorrect
+          })),
+          timeSpent: timeSpent
+        };
+        
+        await ApiService.quizResult.save(quizResultData);
+        console.log('Quiz result saved successfully to MongoDB');
+      } catch (dbError) {
+        console.error('Error saving to MongoDB:', dbError);
+        // Continue execution even if MongoDB save fails
+      }
     } catch (error) {
       console.error('Error saving quiz history:', error);
     }

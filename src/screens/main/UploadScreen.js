@@ -1,16 +1,14 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Image, Alert, Platform } from 'react-native';
-import { Text, Button, Card, ProgressBar, useTheme, Chip } from 'react-native-paper';
+import React, { useState, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
+import { Text, Button, Card, TextInput, ProgressBar, Chip, useTheme, IconButton } from 'react-native-paper';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
-import { useAuth } from '../../context/AuthContext';
-// import LocalDatabase from '../../services/LocalDatabase';
-import MongoDatabase from '../../services/MongoDatabase';
-import GeminiService from '../../services/GeminiService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { v4 as uuidv4 } from 'uuid';
+import ApiService from '../../services/ApiService';
+import GeminiService from '../../services/GeminiService';
 
 const UploadScreen = ({ navigation }) => {
-  const { user } = useAuth();
   const theme = useTheme();
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -132,8 +130,35 @@ const UploadScreen = ({ navigation }) => {
         };
       }
 
-      // Save the certification to the local database
-      await MongoDatabase.certification.addCertification(certificationData);
+      // Get current user ID from AsyncStorage
+      const userId = await AsyncStorage.getItem('userId') || 'default-user';
+      
+      // Create certification data
+      const newCertificationData = {
+        id: Date.now().toString(),
+        title: certificationData.title,
+        description: certificationData.description,
+        level: certificationData.level,
+        examCode: certificationData.examCode,
+        userId: userId,
+        topics: certificationData.topics
+      };
+
+      // Save the certification to the database via API
+      try {
+        console.log('Saving certification data:', JSON.stringify(newCertificationData));
+        const savedCertification = await ApiService.certification.create(newCertificationData);
+        console.log('Certification saved successfully:', savedCertification);
+      } catch (error) {
+        console.error('Error saving certification:', error);
+        console.error('Error response:', error.response?.data);
+        // Continue execution - we'll still save to AsyncStorage as a fallback
+        Alert.alert(
+          'Warning',
+          'Failed to save certification to server, but it will be available locally.',
+          [{ text: 'OK' }]
+        );
+      }
       
       // Also save to recentCertifications for the home screen
       try {
@@ -142,16 +167,16 @@ const UploadScreen = ({ navigation }) => {
         
         // Check if this certification already exists (by ID or similar title)
         const existingIndex = recentCerts.findIndex(cert => 
-          cert.id === certificationData.id || 
-          cert.title.toLowerCase() === certificationData.title.toLowerCase()
+          cert.id === newCertificationData.id || 
+          cert.title.toLowerCase() === newCertificationData.title.toLowerCase()
         );
         
         if (existingIndex !== -1) {
           // Replace the existing certification
-          recentCerts[existingIndex] = certificationData;
+          recentCerts[existingIndex] = newCertificationData;
         } else {
           // Add the new certification
-          recentCerts.push(certificationData);
+          recentCerts.push(newCertificationData);
         }
         
         // Save back to AsyncStorage
@@ -161,23 +186,84 @@ const UploadScreen = ({ navigation }) => {
       }
       
       // Save topics and subtopics
-      for (const topic of certificationData.topics) {
+      for (const topic of newCertificationData.topics) {
         const topicData = {
           ...topic,
-          certificationId: certificationData.id
+          certificationId: newCertificationData.id
         };
         
-        const savedTopic = await MongoDatabase.topic.addTopic(topicData);
+        // Save topic via API
+        let savedTopic;
+        try {
+          console.log('Saving topic data:', JSON.stringify(topicData));
+          savedTopic = await ApiService.topic.create(topicData);
+          console.log('Topic saved successfully:', savedTopic);
+        } catch (error) {
+          console.error('Error saving topic:', error);
+          console.error('Error response:', error.response?.data);
+          // Use the local topic data as fallback
+          savedTopic = topicData;
+        }
         
         // Save subtopics
         if (topic.subtopics && topic.subtopics.length > 0) {
           for (const subtopic of topic.subtopics) {
             const subtopicData = {
               ...subtopic,
-              topicId: savedTopic.id
+              topicId: savedTopic._id || savedTopic.id
             };
             
-            await MongoDatabase.subtopic.addSubtopic(subtopicData);
+            // Validate subtopic data before saving
+            if (subtopicData.title && subtopicData.title.length > 100) {
+              console.warn(`Subtopic title too long (${subtopicData.title.length} chars). Truncating to 100 characters.`);
+              // Truncate the title to 100 characters to comply with backend validation
+              subtopicData.title = subtopicData.title.substring(0, 97) + '...';
+            }
+            
+            // Save subtopic via API
+            try {
+              console.log('Saving subtopic data:', JSON.stringify(subtopicData));
+              const savedSubtopic = await ApiService.subtopic.create(subtopicData);
+              console.log('Subtopic saved successfully:', savedSubtopic);
+            } catch (error) {
+              console.error('Error saving subtopic:', error);
+              
+              // Extract error message for better logging
+              const errorMessage = error.message || 'Unknown error';
+              const responseData = error.response?.data;
+              console.error('Error response:', responseData);
+              
+              // Show a toast or alert for validation errors
+              if (errorMessage.includes('title') || 
+                  (responseData && responseData.message && 
+                   responseData.message.includes('title'))) {
+                // Only show an alert for the first error to avoid multiple alerts
+                if (!window.hasShownSubtopicError) {
+                  window.hasShownSubtopicError = true;
+                  Alert.alert(
+                    'Validation Error',
+                    'Some subtopic titles were too long and have been automatically adjusted.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }
+              
+              // Save to local storage as fallback
+              try {
+                // Get existing subtopics
+                const storedSubtopics = await AsyncStorage.getItem('subtopics');
+                let subtopics = storedSubtopics ? JSON.parse(storedSubtopics) : [];
+                
+                // Add the new subtopic
+                subtopics.push(subtopicData);
+                
+                // Save back to AsyncStorage
+                await AsyncStorage.setItem('subtopics', JSON.stringify(subtopics));
+                console.log('Subtopic saved to local storage');
+              } catch (localError) {
+                console.error('Error saving subtopic to local storage:', localError);
+              }
+            }
           }
         }
       }
@@ -190,7 +276,7 @@ const UploadScreen = ({ navigation }) => {
         [
           { 
             text: 'View Topics', 
-            onPress: () => navigation.navigate('TopicList', { certification: certificationData }) 
+            onPress: () => navigation.navigate('TopicList', { certification: newCertificationData }) 
           }
         ]
       );
@@ -223,10 +309,11 @@ const UploadScreen = ({ navigation }) => {
             
             {file ? (
               <View style={styles.filePreview}>
-                <Image 
-                  source={require('../../../src/assets/pdf-icon.png')} 
+                <MaterialCommunityIcons 
+                  name="file-pdf" 
+                  size={40} 
+                  color={theme.colors.primary} 
                   style={styles.fileIcon} 
-                  resizeMode="contain"
                 />
                 <Text numberOfLines={1} style={styles.fileName}>{file.name}</Text>
                 <Chip icon="file-pdf" style={styles.fileSize}>

@@ -360,8 +360,15 @@ const TopicDetailScreen = ({ route, navigation }) => {
     }
   };
   
-  // Render AI content section
+  // Render AI content section - No longer needed as content is rendered directly in the tabs
   const renderAiContent = (subtopicId) => {
+    // This function is kept for compatibility but is no longer used
+    // Content is now rendered directly in the tab content area
+    return null;
+  }
+
+  // Render content based on the content type
+  const renderStructuredContent = () => {
     const subtopicAiContentObj = aiContent[subtopicId];
     const currentContentType = aiContentType[subtopicId];
     
@@ -764,101 +771,274 @@ const TopicDetailScreen = ({ route, navigation }) => {
 
                     <View style={styles.aiEnhancementsContainer}>
                       <Text variant="titleMedium" style={styles.sectionSubtitle}>Learning Enhancements</Text>
-                      <View style={styles.aiButtonsContainer}>
-                        <AnimatedTouchableCard
-                          onPress={() => generateAiContent(subtopic.id, 'tips')}
-                          style={styles.aiButton}
-                          backgroundColor="#e6f2ff"
-                          disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
-                        >
-                          <View style={[
-                            styles.aiButtonContent,
-                            aiContentType[subtopic.id] === 'tips' && styles.activeAiButton,
-                            Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButton
-                          ]}>
-                            <MaterialCommunityIcons 
-                              name="lightbulb-on" 
-                              size={24} 
-                              color={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) ? "#999999" : "#0066cc"} 
-                            />
+                      
+                      <View style={styles.enhancementTabContainer}>
+                        <View style={styles.enhancementTabs}>
+                          <TouchableOpacity 
+                            style={[
+                              styles.enhancementTab, 
+                              aiContentType[subtopic.id] === 'tips' && styles.activeTab
+                            ]}
+                            onPress={() => {
+                              setAiContentType(prev => ({ ...prev, [subtopic.id]: 'tips' }));
+                              if (!aiContent[subtopic.id]?.['tips']) {
+                                generateAiContent(subtopic.id, 'tips');
+                              }
+                            }}
+                            disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
+                          >
+                            <View style={styles.tabIconContainer}>
+                              <View style={[
+                                styles.tabIconCircle,
+                                { backgroundColor: aiContentType[subtopic.id] === 'tips' ? '#0066cc' : 'transparent' }
+                              ]}>
+                                <MaterialCommunityIcons 
+                                  name="lightbulb-on" 
+                                  size={18} 
+                                  color={aiContentType[subtopic.id] === 'tips' ? '#ffffff' : '#0066cc'} 
+                                />
+                              </View>
+                            </View>
                             <Text style={[
-                              styles.aiButtonText,
-                              Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButtonText
-                            ]}>
-                              Tips & Tricks
-                              {isLoadingAiContent[subtopic.id]?.['tips'] && (
-                                <View style={styles.loadingIndicatorContainer}>
-                                  <Text style={styles.loadingIndicatorText}>...</Text>
-                                </View>
-                              )}
-                            </Text>
-                          </View>
-                        </AnimatedTouchableCard>
+                              styles.enhancementTabText,
+                              aiContentType[subtopic.id] === 'tips' && styles.activeTabText
+                            ]}>Tips & Tricks</Text>
+                            {aiContentType[subtopic.id] === 'tips' && (
+                              <View style={[styles.activeTabIndicator, { backgroundColor: '#0066cc' }]} />
+                            )}
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity 
+                            style={[
+                              styles.enhancementTab, 
+                              aiContentType[subtopic.id] === 'explanation' && styles.activeTab
+                            ]}
+                            onPress={() => {
+                              setAiContentType(prev => ({ ...prev, [subtopic.id]: 'explanation' }));
+                              if (!aiContent[subtopic.id]?.['explanation']) {
+                                generateAiContent(subtopic.id, 'explanation');
+                              }
+                            }}
+                            disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
+                          >
+                            <View style={styles.tabIconContainer}>
+                              <View style={[
+                                styles.tabIconCircle,
+                                { backgroundColor: aiContentType[subtopic.id] === 'explanation' ? '#00994d' : 'transparent' }
+                              ]}>
+                                <MaterialCommunityIcons 
+                                  name="book-open-variant" 
+                                  size={18} 
+                                  color={aiContentType[subtopic.id] === 'explanation' ? '#ffffff' : '#00994d'} 
+                                />
+                              </View>
+                            </View>
+                            <Text style={[
+                              styles.enhancementTabText,
+                              aiContentType[subtopic.id] === 'explanation' && styles.activeTabText
+                            ]}>Concept Explanation</Text>
+                            {aiContentType[subtopic.id] === 'explanation' && (
+                              <View style={[styles.activeTabIndicator, { backgroundColor: '#00994d' }]} />
+                            )}
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity 
+                            style={[
+                              styles.enhancementTab, 
+                              aiContentType[subtopic.id] === 'analogies' && styles.activeTab
+                            ]}
+                            onPress={() => {
+                              setAiContentType(prev => ({ ...prev, [subtopic.id]: 'analogies' }));
+                              if (!aiContent[subtopic.id]?.['analogies']) {
+                                generateAiContent(subtopic.id, 'analogies');
+                              }
+                            }}
+                            disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
+                          >
+                            <View style={styles.tabIconContainer}>
+                              <View style={[
+                                styles.tabIconCircle,
+                                { backgroundColor: aiContentType[subtopic.id] === 'analogies' ? '#cc0000' : 'transparent' }
+                              ]}>
+                                <MaterialCommunityIcons 
+                                  name="compare" 
+                                  size={18} 
+                                  color={aiContentType[subtopic.id] === 'analogies' ? '#ffffff' : '#cc0000'} 
+                                />
+                              </View>
+                            </View>
+                            <Text style={[
+                              styles.enhancementTabText,
+                              aiContentType[subtopic.id] === 'analogies' && styles.activeTabText
+                            ]}>Analogies</Text>
+                            {aiContentType[subtopic.id] === 'analogies' && (
+                              <View style={[styles.activeTabIndicator, { backgroundColor: '#cc0000' }]} />
+                            )}
+                          </TouchableOpacity>
+                        </View>
                         
-                        <AnimatedTouchableCard
-                          onPress={() => generateAiContent(subtopic.id, 'explanation')}
-                          style={styles.aiButton}
-                          backgroundColor="#e6fff2"
-                          disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
-                        >
-                          <View style={[
-                            styles.aiButtonContent,
-                            aiContentType[subtopic.id] === 'explanation' && styles.activeAiButton,
-                            Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButton
-                          ]}>
-                            <MaterialCommunityIcons 
-                              name="book-open-variant" 
-                              size={24} 
-                              color={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) ? "#999999" : "#00994d"} 
-                            />
-                            <Text style={[
-                              styles.aiButtonText,
-                              Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButtonText
-                            ]}>
-                              Concept Explanation
-                              {isLoadingAiContent[subtopic.id]?.['explanation'] && (
-                                <View style={styles.loadingIndicatorContainer}>
-                                  <Text style={styles.loadingIndicatorText}>...</Text>
-                                </View>
-                              )}
-                            </Text>
+                        {!aiContentType[subtopic.id] && (
+                          <View style={styles.hintContainer}>
+                            <View style={styles.hintIconContainer}>
+                              <MaterialCommunityIcons name="gesture-tap" size={24} color="#666" />
+                            </View>
+                            <Text style={styles.hintText}>Tap any option above to get AI-powered learning enhancements</Text>
+                            <View style={styles.hintArrow} />
                           </View>
-                        </AnimatedTouchableCard>
+                        )}
                         
-                        <AnimatedTouchableCard
-                          onPress={() => generateAiContent(subtopic.id, 'analogies')}
-                          style={styles.aiButton}
-                          backgroundColor="#ffe6e6"
-                          disabled={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v)}
-                        >
-                          <View style={[
-                            styles.aiButtonContent,
-                            aiContentType[subtopic.id] === 'analogies' && styles.activeAiButton,
-                            Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButton
-                          ]}>
-                            <MaterialCommunityIcons 
-                              name="compare" 
-                              size={24} 
-                              color={Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) ? "#999999" : "#cc0000"} 
-                            />
-                            <Text style={[
-                              styles.aiButtonText,
-                              Object.values(isLoadingAiContent[subtopic.id] || {}).some(v => v) && styles.disabledAiButtonText
-                            ]}>
-                              Analogies
-                              {isLoadingAiContent[subtopic.id]?.['analogies'] && (
-                                <View style={styles.loadingIndicatorContainer}>
-                                  <Text style={styles.loadingIndicatorText}>...</Text>
+                        {aiContentType[subtopic.id] && (
+                          <View style={styles.enhancementContent}>
+                            {/* Content will only be shown after a tab is clicked */}
+                          
+                            {aiContentType[subtopic.id] === 'tips' && (
+                              isLoadingAiContent[subtopic.id]?.['tips'] ? (
+                                <View style={styles.loadingContainer}>
+                                  <ActivityIndicator size="large" color="#0066cc" />
+                                  <Text style={styles.loadingText}>Generating Tips & Tricks...</Text>
+                                  <Text style={styles.loadingSubText}>This may take a few moments</Text>
                                 </View>
-                              )}
-                            </Text>
-                          </View>
-                        </AnimatedTouchableCard>
+                              ) : aiContent[subtopic.id]?.['tips'] ? (
+                                <View style={styles.contentContainer}>
+                                  {aiContent[subtopic.id]['tips'].tips?.map((tip, index) => (
+                                    <View key={index} style={styles.tipCard}>
+                                      <View style={styles.tipHeader}>
+                                        <MaterialCommunityIcons name="lightbulb-on" size={20} color="#0066cc" />
+                                        <Text style={styles.tipHeading}>{tip.heading}</Text>
+                                      </View>
+                                      <Text style={styles.tipContent}>{tip.content}</Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : (
+                                <View style={styles.emptyEnhancementContent}>
+                                  <MaterialCommunityIcons name="lightbulb-outline" size={32} color="#0066cc" style={{opacity: 0.5}} />
+                                  <Text style={styles.emptyEnhancementText}>No tips available yet</Text>
+                                </View>
+                              )
+                            )}
+                            
+                            {aiContentType[subtopic.id] === 'explanation' && (
+                              isLoadingAiContent[subtopic.id]?.['explanation'] ? (
+                                <View style={styles.loadingContainer}>
+                                  <ActivityIndicator size="large" color="#00994d" />
+                                  <Text style={styles.loadingText}>Generating Concept Explanation...</Text>
+                                  <Text style={styles.loadingSubText}>This may take a few moments</Text>
+                                </View>
+                              ) : aiContent[subtopic.id]?.['explanation'] ? (
+                                <View style={styles.contentContainer}>
+                                  {aiContent[subtopic.id]['explanation'].sections?.map((section, index) => (
+                                    <View key={index} style={styles.explanationSection}>
+                                      <View style={styles.sectionHeaderRow}>
+                                        <MaterialCommunityIcons name="book-open-page-variant" size={20} color="#00994d" />
+                                        <Text style={styles.sectionHeading}>{section.heading}</Text>
+                                      </View>
+                                      <Text style={styles.sectionContent}>{section.content}</Text>
+                                      
+                                      {section.steps && (
+                                        <View style={styles.stepsList}>
+                                          {section.steps.map((step, stepIndex) => (
+                                            <View key={stepIndex} style={styles.stepItem}>
+                                              <View style={styles.stepNumberCircle}>
+                                                <Text style={styles.stepNumberText}>{stepIndex + 1}</Text>
+                                              </View>
+                                              <Text style={styles.stepText}>{step}</Text>
+                                            </View>
+                                          ))}
+                                        </View>
+                                      )}
+                                      
+                                      {section.components && (
+                                        <View style={styles.componentsList}>
+                                          {section.components.map((component, compIndex) => (
+                                            <View key={compIndex} style={styles.componentItem}>
+                                              <View style={styles.bulletPoint} />
+                                              <Text style={styles.componentText}>{component}</Text>
+                                            </View>
+                                          ))}
+                                        </View>
+                                      )}
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : (
+                                <View style={styles.emptyEnhancementContent}>
+                                  <MaterialCommunityIcons name="book-open-outline" size={32} color="#00994d" style={{opacity: 0.5}} />
+                                  <Text style={styles.emptyEnhancementText}>No explanation available yet</Text>
+                                </View>
+                              )
+                            )}
+                            
+                            {aiContentType[subtopic.id] === 'analogies' && (
+                              isLoadingAiContent[subtopic.id]?.['analogies'] ? (
+                                <View style={styles.loadingContainer}>
+                                  <ActivityIndicator size="large" color="#cc0000" />
+                                  <Text style={styles.loadingText}>Generating Helpful Analogies...</Text>
+                                  <Text style={styles.loadingSubText}>This may take a few moments</Text>
+                                </View>
+                              ) : aiContent[subtopic.id]?.['analogies'] ? (
+                                <View style={styles.contentContainer}>
+                                  {aiContent[subtopic.id]['analogies'].analogies?.map((analogy, index) => (
+                                    <View key={index} style={styles.analogyCard}>
+                                      <View style={styles.analogyHeaderRow}>
+                                        <MaterialCommunityIcons name="compare" size={20} color="#cc0000" />
+                                        <Text style={styles.analogyDomain}>{analogy.domain}</Text>
+                                      </View>
+                                      <Text style={styles.analogyContent}>{analogy.analogy}</Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              ) : (
+                                <View style={styles.emptyEnhancementContent}>
+                                  <MaterialCommunityIcons name="compare-horizontal" size={32} color="#cc0000" style={{opacity: 0.5}} />
+                                  <Text style={styles.emptyEnhancementText}>No analogies available yet</Text>
+                                </View>
+                              )
+                            )}</View>
+                        )}
                       </View>
                     </View>
                     
-                    {renderAiContent(subtopic.id)}
-
+                    <View style={styles.actionButtons}>
+                        <TouchableOpacity
+                          onPress={() => navigation.navigate('NoteEditor', { 
+                            topicId: topic.id, 
+                            subtopicId: subtopic.id,
+                            subtopicTitle: subtopic.title,
+                            category: 'general',
+                            onSave: (note) => console.log('Note saved:', note)
+                          })}
+                          style={[styles.enhancedActionButton, styles.noteButton]}
+                        >
+                          <View style={styles.actionButtonIconContainer}>
+                            <MaterialCommunityIcons name="notebook-plus" size={24} color="#9C27B0" />
+                          </View>
+                          <Text style={styles.enhancedActionButtonText}>Add Note</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => {
+                            /* Share functionality would go here */
+                            alert('Share functionality coming soon!');
+                          }}
+                          style={[styles.enhancedActionButton, styles.shareButton]}
+                        >
+                          <View style={styles.actionButtonIconContainer}>
+                            <MaterialCommunityIcons name="share-variant" size={24} color="#4CAF50" />
+                          </View>
+                          <Text style={styles.enhancedActionButtonText}>Share</Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => handleSubtopicQuiz(subtopic)}
+                          style={[styles.enhancedActionButton, styles.quizButton]}
+                        >
+                          <View style={styles.actionButtonIconContainer}>
+                            <MaterialCommunityIcons name="help-circle" size={24} color="#2196F3" />
+                          </View>
+                          <Text style={styles.enhancedActionButtonText}>Practice Quiz</Text>
+                        </TouchableOpacity>
+                    </View>
                     {subtopic.videoLinks && subtopic.videoLinks.length > 0 && (
                       <View style={styles.resourcesSection}>
                         <Text variant="titleMedium" style={styles.sectionSubtitle}>Video Tutorials</Text>
@@ -899,41 +1079,7 @@ const TopicDetailScreen = ({ route, navigation }) => {
                       </View>
                     )}
 
-                    <View style={styles.actionButtons}>
-                      <Button 
-                        mode="contained" 
-                        icon="notebook-plus" 
-                        onPress={() => navigation.navigate('AddNote', { 
-                          topicId: topic.id, 
-                          subtopicId: subtopic.id,
-                          subtopicTitle: subtopic.title
-                        })}
-                        style={styles.actionButton}
-                      >
-                        Add Note
-                      </Button>
-                      
-                      <Button 
-                        mode="outlined" 
-                        icon="share-variant"
-                        onPress={() => {
-                          /* Share functionality would go here */
-                          alert('Share functionality coming soon!');
-                        }}
-                        style={styles.actionButton}
-                      >
-                        Share
-                      </Button>
-                      
-                      <Button 
-                        mode="contained" 
-                        icon="help-circle" 
-                        onPress={() => handleSubtopicQuiz(subtopic)}
-                        style={styles.actionButton}
-                      >
-                        Practice Quiz
-                      </Button>
-                    </View>
+                    
                   </View>
                 </List.Accordion>
               </Surface>
@@ -1083,10 +1229,46 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 12,
+    marginBottom: 8,
   },
   actionButton: {
     flex: 0.48,
+  },
+  enhancedActionButton: {
+    flex: 1,
+    marginHorizontal: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+  },
+  noteButton: {
+    backgroundColor: '#f0e6ff', // Light purple like the explanation button
+  },
+  shareButton: {
+    backgroundColor: '#e6ffe6', // Light green like the tips button
+  },
+  quizButton: {
+    backgroundColor: '#e6f2ff', // Light blue like the analogies button
+  },
+  actionButtonIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    // backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  enhancedActionButtonText: {
+    color: '#333333',
+    fontWeight: 'bold',
+    fontSize: 13,
+    textAlign: 'center',
   },
   emptyText: {
     textAlign: 'center',
@@ -1103,41 +1285,255 @@ const styles = StyleSheet.create({
     flex: 0.48,
   },
   aiEnhancementsContainer: {
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 16,
+    marginBottom: 16,
   },
-  aiButtonsContainer: {
+  enhancementTabContainer: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+    marginTop: 12,
+  },
+  enhancementTabs: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
+    backgroundColor: '#f5f5f5',
+    paddingTop: 8,
   },
-  aiButton: {
+  enhancementTab: {
     flex: 1,
-    marginHorizontal: 4,
-    height: 80,
-  },
-  aiButtonContent: {
-    flex: 1,
-    padding: 12,
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    position: 'relative',
   },
-  aiButtonText: {
-    marginTop: 6,
+  activeTab: {
+    backgroundColor: '#ffffff',
+  },
+  tabIconContainer: {
+    marginBottom: 6,
+  },
+  tabIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+  },
+  enhancementTabText: {
     fontSize: 12,
-    fontWeight: '600',
+    color: '#757575',
     textAlign: 'center',
+    fontWeight: '500',
   },
-  activeAiButton: {
-    borderWidth: 2,
-    borderColor: '#0066cc',
-    borderRadius: 10,
+  activeTabText: {
+    fontWeight: '700',
   },
-  disabledAiButton: {
-    opacity: 0.5,
+
+  activeTabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: '25%',
+    right: '25%',
+    height: 3,
+    borderRadius: 1.5,
   },
-  disabledAiButtonText: {
-    color: '#999999',
+  enhancementContent: {
+    padding: 16,
+    minHeight: 200,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  hintContainer: {
+    padding: 16,
+    backgroundColor: '#fffde7',
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#fff9c4',
+    position: 'relative',
+  },
+  hintIconContainer: {
+    marginRight: 12,
+  },
+  hintText: {
+    flex: 1,
+    color: '#5d4037',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  hintArrow: {
+    position: 'absolute',
+    top: -10,
+    left: '50%',
+    marginLeft: -10,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 10,
+    borderRightWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#fffde7',
+  },
+  emptyEnhancementContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    marginVertical: 8,
+  },
+  emptyEnhancementText: {
+    marginTop: 12,
+    color: '#757575',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingSubText: {
+    marginTop: 8,
+    color: '#999',
+    fontSize: 14,
+    fontStyle: 'italic',
+  },
+  contentContainer: {
+    paddingVertical: 8,
+  },
+  tipCard: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#0066cc',
+  },
+  tipHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tipHeading: {
+    fontWeight: '700',
+    fontSize: 16,
+    color: '#0066cc',
+    marginLeft: 8,
+  },
+  tipContent: {
+    lineHeight: 20,
+    color: '#333',
+  },
+  explanationSection: {
+    marginBottom: 16,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    padding: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#00994d',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sectionHeading: {
+    fontWeight: '700',
+    fontSize: 16,
+    color: '#00994d',
+    marginLeft: 8,
+  },
+  sectionContent: {
+    lineHeight: 20,
+    marginBottom: 12,
+    color: '#333',
+  },
+  stepsList: {
+    marginVertical: 8,
+  },
+  stepItem: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  stepNumberCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#00994d',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    marginTop: 2,
+  },
+  stepNumberText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  stepText: {
+    flex: 1,
+    lineHeight: 20,
+  },
+  componentsList: {
+    marginVertical: 8,
+  },
+  componentItem: {
+    flexDirection: 'row',
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  bulletPoint: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#00994d',
+    marginRight: 10,
+    marginLeft: 8,
+  },
+  componentText: {
+    flex: 1,
+    lineHeight: 20,
+  },
+  analogyCard: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#cc0000',
+  },
+  analogyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  analogyDomain: {
+    fontWeight: '700',
+    fontSize: 16,
+    color: '#cc0000',
+    marginLeft: 8,
+  },
+  analogyContent: {
+    lineHeight: 20,
+    color: '#333',
   },
   segmentedControl: {
     marginTop: 12,

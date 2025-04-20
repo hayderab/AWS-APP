@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import LocalDatabase from '../services/LocalDatabase';
+import ApiService from '../services/ApiService';
 
 const AuthContext = createContext();
 
@@ -17,8 +17,8 @@ export const AuthProvider = ({ children }) => {
     // Initialize the local database
     const initializeApp = async () => {
       try {
-        await LocalDatabase.initialize();
-        const currentUser = await LocalDatabase.user.getCurrentUser();
+        const userJson = await AsyncStorage.getItem('current_user');
+        const currentUser = userJson ? JSON.parse(userJson) : null;
         setUser(currentUser);
       } catch (err) {
         console.error('Error initializing app:', err);
@@ -34,11 +34,26 @@ export const AuthProvider = ({ children }) => {
     try {
       setError('');
       setLoading(true);
-      const loggedInUser = await LocalDatabase.user.login(email, password);
+      const loggedInUser = await ApiService.user.login({ email, password });
+      
+      // Store the user data
+      await AsyncStorage.setItem('current_user', JSON.stringify(loggedInUser));
+      
+      // Store the JWT token separately for API requests
+      if (loggedInUser && loggedInUser.token) {
+        await AsyncStorage.setItem('token', loggedInUser.token);
+      } else {
+        console.warn('No token received from login response');
+      }
+      
       setUser(loggedInUser);
       return loggedInUser;
     } catch (err) {
-      setError('Failed to sign in: ' + err.message);
+      // The ApiService now provides more specific error messages
+      // Just use the error message directly
+      setError(err.message || 'Failed to sign in. Please try again.');
+      
+      // Rethrow the error so the component can handle it
       throw err;
     } finally {
       setLoading(false);
@@ -49,11 +64,12 @@ export const AuthProvider = ({ children }) => {
     try {
       setError('');
       setLoading(true);
-      const newUser = await LocalDatabase.user.register(email, password, displayName);
+      const newUser = await ApiService.user.register({ email, password, displayName: displayName });
+      await AsyncStorage.setItem('current_user', JSON.stringify(newUser));
       setUser(newUser);
       return newUser;
     } catch (err) {
-      setError('Failed to create an account: ' + err.message);
+      setError('Failed to create an account: ' + (err.response?.data?.message || err.message));
       throw err;
     } finally {
       setLoading(false);
@@ -64,7 +80,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setError('');
       setLoading(true);
-      await LocalDatabase.user.logout();
+      await AsyncStorage.removeItem('current_user');
       setUser(null);
     } catch (err) {
       setError('Failed to log out: ' + err.message);
@@ -78,7 +94,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setError('');
       setLoading(true);
-      await LocalDatabase.user.resetPassword(email);
+      await ApiService.user.resetPassword(email);
       return { success: true, message: 'Password reset instructions sent to your email' };
     } catch (err) {
       setError('Failed to reset password: ' + err.message);

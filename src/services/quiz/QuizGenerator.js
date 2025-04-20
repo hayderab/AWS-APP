@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import QuizTypesImport from './QuizTypes';
 // import LocalDatabase from '../LocalDatabase';
-import { MongoDatabase } from '../MongoDatabase'; // Ensure proper import of MongoDatabase
+import ApiService from '../ApiService'; // Replace MongoDatabase with ApiService
 import { GEMINI_API_KEY } from '../../config/env';
 
 class QuizGenerator {
@@ -213,6 +213,14 @@ class QuizGenerator {
                 console.log('Extracted JSON string:', jsonString.substring(0, 100) + '...');
                 
                 // Try to parse the extracted JSON
+                // First, fix common JSON issues
+                jsonString = jsonString
+                    .replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') // Fix unquoted keys
+                    .replace(/:\s*'([^']*)'/g, ':"$1"')  // Replace single quotes with double quotes
+                    .replace(/,\s*}/g, '}')              // Remove trailing commas in objects
+                    .replace(/,\s*\]/g, ']');             // Remove trailing commas in arrays
+                
+                console.log('Cleaned JSON string:', jsonString.substring(0, 100) + '...');
                 questions = JSON.parse(jsonString);
             }
 
@@ -246,8 +254,15 @@ class QuizGenerator {
                     console.log('Extracted JSON candidate:', jsonCandidate.substring(0, 100) + '...');
                     
                     try {
-                        // Try to parse the extracted JSON
-                        questions = JSON.parse(jsonCandidate);
+                        // Try to parse the extracted JSON after fixing common issues
+                        const fixedCandidate = jsonCandidate
+                            .replace(/([{,])\s*([a-zA-Z0-9_]+)\s*:/g, '$1"$2":') // Fix unquoted keys
+                            .replace(/:\s*'([^']*)'/g, ':"$1"')  // Replace single quotes with double quotes
+                            .replace(/,\s*}/g, '}')              // Remove trailing commas in objects
+                            .replace(/,\s*\]/g, ']');             // Remove trailing commas in arrays
+                        
+                        console.log('Fixed JSON candidate:', fixedCandidate.substring(0, 100) + '...');
+                        questions = JSON.parse(fixedCandidate);
                         console.log('Fallback JSON parsing succeeded!');
                     } catch (jsonError) {
                         console.error('JSON parsing error:', jsonError);
@@ -326,7 +341,7 @@ class QuizGenerator {
         const questionObjects = questions.map(q => this.createQuestionFromJSONFormat(q));
 
         // Save to quiz history
-        await MongoDatabase.quizService.saveQuizToHistory({
+        await ApiService.quiz.saveToHistory({
           topicId: topic.id,
           topicTitle: topic.title,
           subtopicId: subtopic.id,
@@ -350,20 +365,21 @@ class QuizGenerator {
       }
     } catch (error) {
       console.error('Error in generateQuiz function:', error);
-      // Rethrow the error so the caller knows something went wrong
-      throw error;
+      // Create fallback questions when JSON parsing fails
+      console.log('Creating fallback questions for', topic?.title || 'Unknown Topic', subtopic?.title || 'Unknown Subtopic');
+      return this.createFallbackQuestions(numberOfQuestions, topic, subtopic);
     }
   }
 
   // Create fallback questions when JSON parsing fails
   createFallbackQuestions(count, topic, subtopic) {
-    console.log(`Creating ${count} fallback questions for ${topic.title} - ${subtopic.title}`);
+    console.log(`Creating ${count} fallback questions for ${topic?.title || 'Unknown'} - ${subtopic?.title || 'Unknown'}`);
     
     // Create a basic multiple choice question
     const createBasicQuestion = (index) => {
       return {
         question_type: "Multiple Choice",
-        question_text: `Question ${index + 1}: This is a fallback question about ${subtopic.title}. The actual question generation failed.`,
+        question_text: `Question ${index + 1}: This is a fallback question about ${subtopic?.title || 'the topic'}. The actual question generation failed.`,
         options: [
           { id: "A", text: "First option related to the topic" },
           { id: "B", text: "Second option related to the topic" },

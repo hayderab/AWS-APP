@@ -1,56 +1,88 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
-import { Text, Card, Searchbar, useTheme, Divider, IconButton, FAB, Portal, Dialog, TextInput, Button } from 'react-native-paper';
+import { Text, Card, Searchbar, useTheme, Divider, IconButton, FAB, Portal, Dialog, Button } from 'react-native-paper';
 import { MaterialIcons } from '@expo/vector-icons';
 import MongoDatabase from '../../services/MongoDatabase';
 
 const NotesScreen = ({ route, navigation }) => {
-  const { topicId, topicTitle } = route.params || {};
+  const { topicId, topicTitle, category } = route.params || {};
   const theme = useTheme();
   const [notes, setNotes] = useState([]);
   const [filteredNotes, setFilteredNotes] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNote, setSelectedNote] = useState(null);
-  const [dialogVisible, setDialogVisible] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [editedNoteText, setEditedNoteText] = useState('');
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   
   const isTablet = Dimensions.get('window').width >= 768;
+  const isCareerHub = category === 'career';
+  const useSplitView = isTablet || isCareerHub;
 
   useEffect(() => {
     // Set the header title if a specific topic was provided
     if (topicTitle) {
-      navigation.setOptions({ headerTitle: `Notes: ${topicTitle}` });
+      navigation.setOptions({ 
+        headerTitle: `Notes: ${topicTitle}`,
+        headerRight: () => (
+          <IconButton
+            icon="information-outline"
+            onPress={() => alert('Notes are saved locally. You can create, edit, and delete notes for your AWS certification study.')}
+          />
+        )
+      });
+    } else if (category) {
+      navigation.setOptions({ 
+        headerTitle: `${category.charAt(0).toUpperCase() + category.slice(1)} Notes`,
+        headerRight: () => (
+          <IconButton
+            icon="information-outline"
+            onPress={() => alert('Notes are saved locally. You can create, edit, and delete notes for your AWS certification study.')}
+          />
+        )
+      });
     }
 
     loadNotes();
-  }, [topicId, navigation]);
+    
+    // Set up navigation listener to refresh notes when returning to this screen
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadNotes();
+    });
+    
+    return unsubscribe;
+  }, [topicId, category, navigation]);
 
   const loadNotes = async () => {
+    setIsLoading(true);
     try {
       let allNotes = [];
       
       if (topicId) {
         // Load notes for a specific topic
         allNotes = await MongoDatabase.note.getNotesByTopic(topicId);
+      } else if (category) {
+        // Load notes for a specific category
+        const notes = await MongoDatabase.note.getAllNotes();
+        allNotes = notes.filter(note => note.category === category);
       } else {
         // Load all notes across all topics
         allNotes = await MongoDatabase.note.getAllNotes();
       }
       
       // Sort notes by most recent first
-      allNotes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      allNotes.sort((a, b) => new Date(b.updatedAt || b.timestamp) - new Date(a.updatedAt || a.timestamp));
       
       setNotes(allNotes);
       setFilteredNotes(allNotes);
       
-      // Auto-select the first note if available and on tablet
-      if (allNotes.length > 0 && isTablet) {
+      // Auto-select the first note if available and on tablet or in Career Hub
+      if (allNotes.length > 0 && (isTablet || isCareerHub)) {
         setSelectedNote(allNotes[0]);
       }
     } catch (error) {
       console.error('Error loading notes:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -63,34 +95,52 @@ const NotesScreen = ({ route, navigation }) => {
     }
     
     const filtered = notes.filter(note => 
-      note.text.toLowerCase().includes(query.toLowerCase()) ||
-      note.subtopicTitle.toLowerCase().includes(query.toLowerCase())
+      (note.title?.toLowerCase().includes(query.toLowerCase()) || false) ||
+      note.text?.toLowerCase().includes(query.toLowerCase()) ||
+      note.content?.toLowerCase().includes(query.toLowerCase()) ||
+      note.subtopicTitle?.toLowerCase().includes(query.toLowerCase())
     );
     
     setFilteredNotes(filtered);
   };
 
   const selectNote = (note) => {
-    setSelectedNote(note);
+    if (isTablet || isCareerHub) {
+      // On tablet or career hub, just select the note for split view
+      setSelectedNote(note);
+    } else {
+      // On phone, open directly in the editor
+      navigation.navigate('NoteEditor', {
+        note: note,
+        onSave: handleNoteSaved,
+        topicId,
+        topicTitle,
+        category: category || 'general'
+      });
+    }
   };
 
   const addNewNote = () => {
-    if (!topicId) {
-      // Can't add a new note without a topic
-      return;
-    }
-    
-    setEditMode(false);
-    setEditedNoteText('');
-    setDialogVisible(true);
+    navigation.navigate('NoteEditor', {
+      onSave: handleNoteSaved,
+      topicId,
+      topicTitle,
+      category: category || 'general'
+    });
+    console.log('Opening note editor');
   };
 
-  const editNote = () => {
-    if (!selectedNote) return;
+  const editNote = (note) => {
+    const noteToEdit = note || selectedNote;
+    if (!noteToEdit) return;
     
-    setEditMode(true);
-    setEditedNoteText(selectedNote.text);
-    setDialogVisible(true);
+    navigation.navigate('NoteEditor', {
+      note: noteToEdit,
+      onSave: handleNoteSaved,
+      topicId,
+      topicTitle,
+      category: category || 'general'
+    });
   };
 
   const confirmDeleteNote = () => {
@@ -110,283 +160,187 @@ const NotesScreen = ({ route, navigation }) => {
       setFilteredNotes(
         searchQuery ? 
           updatedNotes.filter(note => 
-            note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
+            (note.title?.toLowerCase().includes(searchQuery.toLowerCase()) || false) ||
+            note.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            note.content?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            note.subtopicTitle?.toLowerCase().includes(searchQuery.toLowerCase())
           ) : 
           updatedNotes
       );
       
-      // Select another note if available
-      if (updatedNotes.length > 0) {
-        setSelectedNote(updatedNotes[0]);
-      } else {
-        setSelectedNote(null);
-      }
+      // Clear selected note if it was deleted
+      setSelectedNote(null);
+      setDeleteDialogVisible(false);
     } catch (error) {
       console.error('Error deleting note:', error);
     }
-    
-    setDeleteDialogVisible(false);
   };
 
-  const saveNote = async () => {
-    if (!editedNoteText.trim()) {
-      setDialogVisible(false);
-      return;
-    }
+  const handleNoteSaved = async (savedNote) => {
+    console.log('Note saved:', savedNote);
     
     try {
-      if (editMode && selectedNote) {
-        // Update existing note
-        const updatedNote = await MongoDatabase.note.updateNote(
-          selectedNote._id, 
-          { ...selectedNote, text: editedNoteText, timestamp: new Date().toISOString() }
-        );
-        
-        // Update the notes list
-        const updatedNotes = notes.map(note => 
-          note._id === selectedNote._id ? updatedNote : note
-        );
-        
-        setNotes(updatedNotes);
-        setFilteredNotes(
-          searchQuery ? 
-            updatedNotes.filter(note => 
-              note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
-            ) : 
-            updatedNotes
-        );
-        
-        setSelectedNote(updatedNote);
-      } else {
-        // Create new note
-        const newNote = {
-          topicId: topicId,
-          subtopicId: null, 
-          subtopicTitle: topicTitle || 'General',
-          text: editedNoteText,
-          timestamp: new Date().toISOString()
-        };
-        
-        const savedNote = await MongoDatabase.note.addNote(newNote);
-        
-        // Update the notes list
-        const updatedNotes = [savedNote, ...notes];
-        setNotes(updatedNotes);
-        setFilteredNotes(
-          searchQuery ? 
-            updatedNotes.filter(note => 
-              note.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-              note.subtopicTitle.toLowerCase().includes(searchQuery.toLowerCase())
-            ) : 
-            updatedNotes
-        );
-        
-        // Select the new note
-        setSelectedNote(savedNote);
+      // Refresh notes list
+      await loadNotes();
+      
+      // Select the saved note
+      if (savedNote && savedNote._id) {
+        const noteInList = notes.find(note => note._id === savedNote._id);
+        if (noteInList) {
+          setSelectedNote(noteInList);
+        }
       }
     } catch (error) {
-      console.error('Error saving note:', error);
+      console.error('Error refreshing notes after save:', error);
     }
-    
-    setDialogVisible(false);
   };
 
-  const renderNoteItem = ({ item }) => (
-    <TouchableOpacity
-      onPress={() => selectNote(item)}
-      style={[
-        styles.noteItem,
-        selectedNote && selectedNote._id === item._id ? 
-          { backgroundColor: `${theme.colors.primary}10` } : 
-          null
-      ]}
-    >
-      <View style={styles.noteItemContent}>
-        <Text 
-          numberOfLines={2} 
-          style={styles.noteText}
-        >
-          {item.text}
-        </Text>
-        <View style={styles.noteItemFooter}>
-          <Text style={styles.noteSubtopic}>{item.subtopicTitle}</Text>
-          <Text style={styles.noteDate}>
-            {new Date(item.timestamp).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderNoteItem = ({ item }) => {
+    const isSelected = selectedNote && selectedNote._id === item._id;
+    
+    return (
+      <TouchableOpacity onPress={() => selectNote(item)}>
+        <Card style={[styles.noteItem, isSelected && { backgroundColor: theme.colors.background }]}>
+          <View style={styles.noteItemContent}>
+            <Text style={styles.noteTitle} numberOfLines={1} ellipsizeMode="tail">
+              {item.title || item.subtopicTitle || 'Untitled Note'}
+            </Text>
+            <Text style={styles.noteText} numberOfLines={2} ellipsizeMode="tail">
+              {item.text || item.content || ''}
+            </Text>
+            <View style={styles.noteItemFooter}>
+              <Text style={styles.noteSubtopic} numberOfLines={1} ellipsizeMode="tail">
+                {item.subtopicTitle || ''}
+              </Text>
+              <Text style={styles.noteDate}>
+                {new Date(item.updatedAt || item.timestamp).toLocaleDateString()}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      </TouchableOpacity>
+    );
+  };
 
-  const renderEmptyList = () => (
-    <View style={styles.emptyContainer}>
-      <MaterialIcons name="note" size={64} color="#ccc" />
-      <Text style={styles.emptyText}>
-        {searchQuery ? 'No notes match your search' : 'No notes yet'}
-      </Text>
-      <Text style={styles.emptySubtext}>
-        {searchQuery ? 
-          'Try a different search term' : 
-          topicId ? 
-            'Add your first note using the + button below' : 
-            'Select a topic to add notes'
-        }
-      </Text>
-    </View>
-  );
+  const renderEmptyList = () => {
+    return (
+      <View style={styles.emptyContainer}>
+        <MaterialIcons name="note-add" size={64} color={theme.colors.primary} />
+        <Text style={styles.emptyText}>No Notes Found</Text>
+        <Text style={styles.emptySubtext}>
+          {topicId 
+            ? "You haven't created any notes for this topic yet." 
+            : "You haven't created any notes yet."}
+        </Text>
+        <Text style={styles.emptySubtext}>
+          Tap the + button to create your first note.
+        </Text>
+      </View>
+    );
+  };
 
   const renderNoteDetail = () => {
     if (!selectedNote) {
       return (
         <View style={styles.emptyDetailContainer}>
-          <MaterialIcons name="description" size={64} color="#ccc" />
           <Text style={styles.emptyDetailText}>
             Select a note to view its contents
           </Text>
         </View>
       );
     }
-
+    
     return (
       <View style={styles.noteDetailContainer}>
         <View style={styles.noteDetailHeader}>
-          <View>
-            <Text style={styles.noteDetailSubtopic}>{selectedNote.subtopicTitle}</Text>
-            <Text style={styles.noteDetailDate}>
-              {new Date(selectedNote.timestamp).toLocaleString()}
-            </Text>
-          </View>
+          <Text style={styles.noteDetailTitle}>
+            {selectedNote.title || selectedNote.subtopicTitle || 'Untitled Note'}
+          </Text>
           <View style={styles.noteDetailActions}>
-            <IconButton
-              icon="pencil"
+            <IconButton 
+              icon="pencil" 
+              onPress={() => editNote(selectedNote)} 
               size={20}
-              onPress={editNote}
             />
-            <IconButton
-              icon="delete"
+            <IconButton 
+              icon="delete" 
+              onPress={confirmDeleteNote} 
               size={20}
-              onPress={confirmDeleteNote}
             />
           </View>
         </View>
+        <Text style={styles.noteDetailDate}>
+          {new Date(selectedNote.updatedAt || selectedNote.timestamp).toLocaleString()}
+        </Text>
         <Divider style={styles.divider} />
         <ScrollView style={styles.noteDetailContent}>
-          <Text style={styles.noteDetailText}>{selectedNote.text}</Text>
+          <Text style={styles.noteDetailText}>
+            {selectedNote.text || selectedNote.content || ''}
+          </Text>
         </ScrollView>
       </View>
     );
   };
 
-  // Use split view layout for tablets, single view with modal for phones
   return (
     <View style={styles.container}>
-      {isTablet ? (
-        // Tablet layout with split view
+      {useSplitView ? (
         <View style={styles.splitContainer}>
           <View style={styles.listContainer}>
             <Searchbar
-              placeholder="Search notes..."
+              placeholder="Search notes"
               onChangeText={onChangeSearch}
               value={searchQuery}
               style={styles.searchBar}
             />
-            
             <FlatList
               data={filteredNotes}
-              renderItem={renderNoteItem}
               keyExtractor={(item) => item._id}
+              renderItem={renderNoteItem}
               contentContainerStyle={styles.notesList}
+              ItemSeparatorComponent={null}
               ListEmptyComponent={renderEmptyList}
-              ItemSeparatorComponent={() => <Divider />}
             />
-            
-            {topicId && (
-              <FAB
-                style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-                icon="plus"
-                onPress={addNewNote}
-              />
-            )}
+            <FAB
+              style={styles.fab}
+              small
+              icon="plus"
+              onPress={addNewNote}
+            />
           </View>
-          
           <View style={styles.detailContainer}>
             {renderNoteDetail()}
           </View>
         </View>
       ) : (
-        // Phone layout with list view and modal for details
         <View style={styles.phoneContainer}>
           <Searchbar
-            placeholder="Search notes..."
+            placeholder="Search notes"
             onChangeText={onChangeSearch}
             value={searchQuery}
             style={styles.searchBar}
           />
-          
           <FlatList
             data={filteredNotes}
-            renderItem={renderNoteItem}
             keyExtractor={(item) => item._id}
+            renderItem={({ item }) => (
+              <TouchableOpacity onPress={() => selectNote(item)}>
+                {renderNoteItem({ item })}
+              </TouchableOpacity>
+            )}
             contentContainerStyle={styles.notesList}
+            ItemSeparatorComponent={null}
             ListEmptyComponent={renderEmptyList}
-            ItemSeparatorComponent={() => <Divider />}
           />
-          
-          {topicId && (
-            <FAB
-              style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-              icon="plus"
-              onPress={addNewNote}
-            />
-          )}
-          
-          <Portal>
-            <Dialog
-              visible={selectedNote !== null && !dialogVisible && !deleteDialogVisible}
-              onDismiss={() => setSelectedNote(null)}
-              style={styles.noteDialog}
-            >
-              <Dialog.Title>{selectedNote?.subtopicTitle}</Dialog.Title>
-              <Dialog.Content>
-                <Text style={styles.noteDetailDate}>
-                  {selectedNote ? new Date(selectedNote.timestamp).toLocaleString() : ''}
-                </Text>
-                <Text style={styles.noteDialogContent}>
-                  {selectedNote?.text}
-                </Text>
-              </Dialog.Content>
-              <Dialog.Actions>
-                <Button onPress={() => setSelectedNote(null)}>Close</Button>
-                <Button onPress={editNote}>Edit</Button>
-                <Button onPress={confirmDeleteNote}>Delete</Button>
-              </Dialog.Actions>
-            </Dialog>
-          </Portal>
+          <FAB
+            style={styles.fab}
+            icon="plus"
+            onPress={addNewNote}
+          />
         </View>
       )}
       
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
-          <Dialog.Title>{editMode ? 'Edit Note' : 'New Note'}</Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Note"
-              value={editedNoteText}
-              onChangeText={setEditedNoteText}
-              multiline
-              numberOfLines={8}
-              mode="outlined"
-              style={styles.noteInput}
-            />
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)}>Cancel</Button>
-            <Button onPress={saveNote}>Save</Button>
-          </Dialog.Actions>
-        </Dialog>
-        
         <Dialog visible={deleteDialogVisible} onDismiss={() => setDeleteDialogVisible(false)}>
           <Dialog.Title>Delete Note</Dialog.Title>
           <Dialog.Content>
@@ -429,13 +383,22 @@ const styles = StyleSheet.create({
   },
   notesList: {
     flexGrow: 1,
+    paddingVertical: 8,
   },
   noteItem: {
     padding: 16,
     backgroundColor: 'white',
+    margin: 8,
+    marginHorizontal: 12,
+    borderRadius: 8,
+    elevation: 2,
   },
   noteItemContent: {
     flex: 1,
+  },
+  noteTitle: {
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
   noteText: {
     marginBottom: 8,
@@ -489,10 +452,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
+  noteDetailTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
   noteDetailSubtopic: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 4,
+    flex: 1,
   },
   noteDetailDate: {
     fontSize: 14,
@@ -517,15 +486,6 @@ const styles = StyleSheet.create({
     margin: 16,
     right: 0,
     bottom: 0,
-  },
-  noteDialog: {
-    maxHeight: '80%',
-  },
-  noteDialogContent: {
-    marginTop: 8,
-  },
-  noteInput: {
-    marginTop: 8,
   },
 });
 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, Fragment } from 'react';
-import { View, StyleSheet, FlatList, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, FlatList, useWindowDimensions, ScrollView } from 'react-native';
 import { Text, Card, Button, Divider, IconButton, useTheme, ActivityIndicator, Surface, List, FAB } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import LocalDatabase from '../../services/LocalDatabase';
-import MongoDatabase from '../../services/MongoDatabase';
+import ApiService from '../../services/ApiService';
 import QuizTypesImport from '../../services/quiz/QuizTypes';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const QuizHistoryScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
@@ -21,10 +22,104 @@ const QuizHistoryScreen = ({ navigation }) => {
   const loadQuizHistory = async () => {
     try {
       setLoading(true);
-      const history = await MongoDatabase.quizService.getQuizHistory();
+      
+      // Add debugging to see what's available
+      console.log('LocalDatabase available:', !!LocalDatabase);
+      console.log('ApiService available:', !!ApiService);
+      
+      // Create a fallback history with sample data if needed for testing
+      const fallbackHistory = [
+        {
+          id: 'sample-quiz-1',
+          topicId: 'sample-topic-1',
+          topicTitle: 'AWS EC2',
+          subtopicId: 'sample-subtopic-1',
+          subtopicTitle: 'EC2 Instance Types',
+          timestamp: new Date().toISOString(),
+          score: 80,
+          questions: []
+        },
+        {
+          id: 'sample-quiz-2',
+          topicId: 'sample-topic-2',
+          topicTitle: 'AWS S3',
+          subtopicId: 'sample-subtopic-2',
+          subtopicTitle: 'S3 Storage Classes',
+          timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+          score: 70,
+          questions: []
+        }
+      ];
+      
+      // Try to get quiz history from AsyncStorage first (most reliable source)
+      let history = [];
+      try {
+        const quizHistoryStr = await AsyncStorage.getItem('quizHistory');
+        if (quizHistoryStr) {
+          const parsedHistory = JSON.parse(quizHistoryStr);
+          if (parsedHistory && Array.isArray(parsedHistory)) {
+            history = parsedHistory;
+            console.log('Got history from AsyncStorage:', history);
+          }
+        }
+      } catch (storageError) {
+        console.error('Error getting history from AsyncStorage:', storageError);
+      }
+      
+      // If AsyncStorage fails, try API
+      if (history.length === 0) {
+        try {
+          const response = await ApiService.quiz.getHistory();
+          if (response && Array.isArray(response)) {
+            history = response;
+            console.log('Got history from API:', history);
+          }
+        } catch (apiError) {
+          console.error('Error getting history from API:', apiError);
+        }
+      }
+      
+      // If API fails, try LocalDatabase
+      if (history.length === 0) {
+        try {
+          if (LocalDatabase && LocalDatabase.getQuizHistory) {
+            const localHistory = await LocalDatabase.getQuizHistory();
+            if (localHistory && Array.isArray(localHistory)) {
+              history = localHistory;
+              console.log('Got history from LocalDatabase:', history);
+            }
+          }
+        } catch (localError) {
+          console.error('Error getting history from LocalDatabase:', localError);
+        }
+      }
+      
+      // If all sources fail and we're in development, use fallback data
+      if (history.length === 0 && __DEV__) {
+        console.log('Using fallback quiz history data for development');
+        history = fallbackHistory;
+      }
+      
+      // Ensure all history items have required properties
+      history = history.map(item => ({
+        id: item.id || `quiz-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        topicId: item.topicId || 'unknown',
+        topicTitle: item.topicTitle || 'Unknown Topic',
+        subtopicId: item.subtopicId || 'unknown',
+        subtopicTitle: item.subtopicTitle || 'Unknown Subtopic',
+        timestamp: item.timestamp || new Date().toISOString(),
+        score: item.score || 0,
+        questions: item.questions || []
+      }));
+      
+      // Sort by most recent first
+      history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      
+      console.log(`Loaded ${history.length} quiz history items`);
       setQuizHistory(history);
     } catch (error) {
       console.error('Error loading quiz history:', error);
+      setQuizHistory([]);
     } finally {
       setLoading(false);
     }
@@ -33,7 +128,38 @@ const QuizHistoryScreen = ({ navigation }) => {
   const handleClearHistory = async () => {
     try {
       setLoading(true);
-      await MongoDatabase.quizService.clearQuizHistory();
+      
+      // Try to clear quiz history directly from the API
+      let success = false;
+      
+      try {
+        // Try to clear history directly from the API
+        await ApiService.quiz.clearHistory();
+        success = true;
+      } catch (apiError) {
+        console.error('Error clearing history from API:', apiError);
+        
+        // If API fails, try LocalDatabase
+        try {
+          if (LocalDatabase && LocalDatabase.clearQuizHistory) {
+            await LocalDatabase.clearQuizHistory();
+            success = true;
+          }
+        } catch (localError) {
+          console.error('Error clearing history from LocalDatabase:', localError);
+        }
+        
+        // If both fail, clear AsyncStorage directly
+        if (!success) {
+          try {
+            await AsyncStorage.setItem('quizHistory', '[]');
+            success = true;
+          } catch (storageError) {
+            console.error('Error clearing history from AsyncStorage:', storageError);
+          }
+        }
+      }
+      
       setQuizHistory([]);
       setSelectedQuiz(null);
     } catch (error) {
@@ -46,32 +172,41 @@ const QuizHistoryScreen = ({ navigation }) => {
   const handleRetakeQuiz = (quiz) => {
     try {
       // Debug the quiz data
-      console.log('Retaking quiz:', JSON.stringify(quiz, null, 2));
+      console.log('Retaking quiz:', quiz);
       
-      // Check if quiz has questions
-      if (!quiz.questions || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
-        console.error('No questions found in quiz history');
-        alert('This quiz has no questions to retake. Please try another quiz.');
-        return;
-      }
+      // Use the correct property names based on the data structure
+      const topicTitle = quiz.topicTitle || quiz.topic || 'Unknown Topic';
+      const subtopicTitle = quiz.subtopicTitle || 'Unknown Subtopic';
       
       // Create a topic object for navigation
       const topicData = {
         id: quiz.topicId || 'unknown',
-        title: quiz.topicTitle || 'Quiz Retake',
+        title: topicTitle,
         subtopics: [{
           id: quiz.subtopicId || 'unknown',
-          title: quiz.subtopicTitle || 'Retake',
+          title: subtopicTitle,
           content: ''  // Add empty content to avoid undefined errors
         }]
       };
       
-      // Navigate to the quiz screen with the topic data
-      // This will use the same quiz generation mechanism as the initial quiz
+      // Use the existing questions from the quiz history
+      const existingQuestions = quiz.questions || [];
+      
+      // Log the navigation parameters
+      console.log('Navigation params:', {
+        topic: topicData,
+        subtopic: topicData.subtopics[0],
+        existingQuestions: existingQuestions.length
+      });
+      
+      // Navigate to the quiz screen with the topic data and existing questions
       navigation.navigate('Quiz', {
         topic: topicData,
-        subtopic: topicData.subtopics[0]
+        subtopic: topicData.subtopics[0],
+        preGeneratedQuestions: existingQuestions
       });
+      
+      console.log('Navigated to Quiz screen for retake with existing questions');
     } catch (error) {
       console.error('Error retaking quiz:', error);
       console.error('Error details:', error.stack);
@@ -140,20 +275,30 @@ const QuizHistoryScreen = ({ navigation }) => {
   };
 
   const mapQuestionType = (questionType) => {
-    // Map from question_type string to the internal type name
+    // Handle both formats of question types
     switch (questionType) {
+      case 'MultipleChoiceQuestion':
       case 'Multiple Choice':
-        return 'MultipleChoiceQuestion';
+      case 'multiple_choice':
+        return 'Multiple Choice';
+      case 'MultipleResponseQuestion':
       case 'Multiple Response':
-        return 'MultipleResponseQuestion';
+      case 'multiple_response':
+        return 'Multiple Response';
+      case 'OrderingQuestion':
       case 'Ordering':
-        return 'OrderingQuestion';
+      case 'ordering':
+        return 'Ordering';
+      case 'MatchingQuestion':
       case 'Matching':
-        return 'MatchingQuestion';
+      case 'matching':
+        return 'Matching';
+      case 'CaseStudyQuestion':
       case 'Case Study':
-        return 'CaseStudyQuestion';
+      case 'case_study':
+        return 'Case Study';
       default:
-        throw new Error(`Unknown question_type: ${questionType}`);
+        return questionType || 'Multiple Choice';
     }
   };
 
@@ -235,7 +380,13 @@ const QuizHistoryScreen = ({ navigation }) => {
 
   const renderQuizItem = ({ item }) => {
     const isSelected = selectedQuiz && selectedQuiz.id === item.id;
-    const formattedDate = new Date(item.timestamp).toLocaleString();
+    // Handle both timestamp formats (string date or number)
+    const timestamp = typeof item.timestamp === 'number' ? item.timestamp : new Date(item.timestamp).getTime();
+    const formattedDate = new Date(timestamp).toLocaleString();
+    
+    // Use the correct property names based on the data structure
+    const topicTitle = item.topicTitle || item.topic || 'Unknown Topic';
+    const subtopicTitle = item.subtopicTitle || 'Unknown Subtopic';
     
     return (
       <Surface 
@@ -246,8 +397,8 @@ const QuizHistoryScreen = ({ navigation }) => {
         elevation={1}
       >
         <List.Item
-          title={item.topicTitle}
-          description={`${item.subtopicTitle} • ${formattedDate}`}
+          title={topicTitle}
+          description={`${subtopicTitle} • ${formattedDate}`}
           left={props => <List.Icon {...props} icon="clipboard-list" />}
           right={props => (
             <IconButton
@@ -278,38 +429,74 @@ const QuizHistoryScreen = ({ navigation }) => {
         </View>
       );
     }
-
+    
+    // Handle both timestamp formats (string date or number)
+    const timestamp = typeof selectedQuiz.timestamp === 'number' 
+      ? selectedQuiz.timestamp 
+      : new Date(selectedQuiz.timestamp).getTime();
+    const formattedDate = new Date(timestamp).toLocaleString();
+    
+    // Use the correct property names based on the data structure
+    const topicTitle = selectedQuiz.topicTitle || selectedQuiz.topic || 'Unknown Topic';
+    const subtopicTitle = selectedQuiz.subtopicTitle || 'Unknown Subtopic';
+    const score = selectedQuiz.score || 0;
+    const correctCount = selectedQuiz.correctCount || 0;
+    const totalQuestions = selectedQuiz.totalQuestions || (selectedQuiz.questions ? selectedQuiz.questions.length : 0);
+    
     return (
-      <View style={styles.detailsContainer}>
+      <ScrollView 
+        contentContainerStyle={styles.detailsContainer}
+        showsVerticalScrollIndicator={true}
+        scrollEnabled={true}
+      >
         <Card style={styles.detailsCard}>
-          <Card.Title 
-            title={selectedQuiz.topicTitle} 
-            subtitle={selectedQuiz.subtopicTitle}
-          />
           <Card.Content>
-            <Text style={styles.dateText}>
-              Generated: {new Date(selectedQuiz.timestamp).toLocaleString()}
-            </Text>
+            <Text variant="titleLarge">{topicTitle}</Text>
+            <Text variant="titleMedium">{subtopicTitle}</Text>
+            <Text style={styles.dateText}>{formattedDate}</Text>
+            
+            <Text variant="titleMedium">Score: {score}%</Text>
+            <Text>Correct: {correctCount} / {totalQuestions}</Text>
+            
             <Divider style={styles.divider} />
             
-            <Text style={styles.sectionTitle}>Questions:</Text>
-            {selectedQuiz.questions.map((question, index) => (
-              <View key={index} style={styles.questionItem}>
-                <Text style={styles.questionType}>{question.type}</Text>
-                <Text style={styles.questionText}>{question.question}</Text>
-              </View>
-            ))}
+            <Text style={styles.sectionTitle}>Questions</Text>
+            
+            {selectedQuiz.questions && selectedQuiz.questions.length > 0 ? (
+              selectedQuiz.questions.map((question, index) => {
+                // Get question text, handling different formats
+                const questionText = question.question_text || question.question || `Question ${index + 1}`;
+                // Get question type, handling different formats
+                const questionType = question.question_type || question.type || 'Unknown';
+                
+                return (
+                  <View key={index} style={styles.questionItem}>
+                    <Text style={styles.questionType}>
+                      {mapQuestionType(questionType)}
+                    </Text>
+                    <Text style={styles.questionText}>
+                      {questionText.length > 100 
+                        ? questionText.substring(0, 100) + '...' 
+                        : questionText}
+                    </Text>
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.emptyText}>No question details available</Text>
+            )}
           </Card.Content>
-          <Card.Actions>
-            <Button 
-              mode="contained" 
-              onPress={() => handleRetakeQuiz(selectedQuiz)}
-            >
-              <Text>Retake Quiz</Text>
-            </Button>
-          </Card.Actions>
         </Card>
-      </View>
+        
+        <Button 
+          mode="contained" 
+          icon="refresh" 
+          onPress={() => handleRetakeQuiz(selectedQuiz)}
+          style={styles.button}
+        >
+          Retake Quiz
+        </Button>
+      </ScrollView>
     );
   };
 
@@ -322,89 +509,110 @@ const QuizHistoryScreen = ({ navigation }) => {
     );
   }
 
-  // For tablets, use a split-view layout
+  // For tablets, use a split view layout
   if (isTablet) {
+    console.log('Rendering tablet layout with', quizHistory.length, 'history items');
     return (
       <View style={styles.container}>
-        <View style={styles.splitContainer}>
-          <View style={styles.listContainer}>
-            <View style={styles.headerContainer}>
-              <Text variant="titleLarge" style={styles.headerTitle}>Quiz History</Text>
-              {quizHistory.length > 0 && (
-                <Button 
-                  mode="text" 
-                  onPress={handleClearHistory}
-                  icon="delete"
-                >
-                  <Text>Clear History</Text>
-                </Button>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.loadingText}>Loading quiz history...</Text>
+          </View>
+        ) : (
+          <View style={styles.splitContainer}>
+            <View style={styles.listContainer}>
+              <View style={styles.headerContainer}>
+                <Text variant="titleLarge" style={styles.headerTitle}>Quiz History</Text>
+                {quizHistory.length > 0 && (
+                  <Button 
+                    mode="text" 
+                    onPress={handleClearHistory}
+                    icon="delete"
+                  >
+                    Clear History
+                  </Button>
+                )}
+              </View>
+              
+              {quizHistory.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <MaterialCommunityIcons name="history" size={64} color={theme.colors.outline} />
+                  <Text style={styles.emptyText}>No quiz history found</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={quizHistory}
+                  renderItem={renderQuizItem}
+                  keyExtractor={item => item.id || item._id || `quiz-${Math.random()}`}
+                  contentContainerStyle={styles.listContent}
+                  showsVerticalScrollIndicator={true}
+                  scrollEnabled={true}
+                  style={{flex: 1}}
+                />
               )}
             </View>
             
-            {quizHistory.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <MaterialCommunityIcons name="history" size={64} color={theme.colors.outline} />
-                <Text style={styles.emptyText}>No quiz history found</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={quizHistory}
-                renderItem={renderQuizItem}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.listContent}
-              />
-            )}
+            <View style={styles.detailsWrapper}>
+              {renderQuizDetails()}
+            </View>
           </View>
-          
-          <View style={styles.detailsWrapper}>
-            {renderQuizDetails()}
-          </View>
-        </View>
+        )}
       </View>
     );
   }
 
   // For phones, use a stacked layout
+  console.log('Rendering phone layout with', quizHistory.length, 'history items');
   return (
     <View style={styles.container}>
-      <View style={styles.headerContainer}>
-        <Text variant="titleLarge" style={styles.headerTitle}>Quiz History</Text>
-        {quizHistory.length > 0 && (
-          <Button 
-            mode="text" 
-            onPress={handleClearHistory}
-            icon="delete"
-          >
-            <Text>Clear History</Text>
-          </Button>
-        )}
-      </View>
-      
-      {quizHistory.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialCommunityIcons name="history" size={64} color={theme.colors.outline} />
-          <Text style={styles.emptyText}>No quiz history found</Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={styles.loadingText}>Loading quiz history...</Text>
         </View>
       ) : (
         <>
-          {selectedQuiz ? (
-            <>
-              {renderQuizDetails()}
-              <FAB
-                style={styles.fab}
-                icon="arrow-left"
-                onPress={() => setSelectedQuiz(null)}
+          <View style={styles.headerContainer}>
+            <Text variant="titleLarge" style={styles.headerTitle}>Quiz History</Text>
+            {quizHistory.length > 0 && (
+              <Button 
+                mode="text" 
+                onPress={handleClearHistory}
+                icon="delete"
               >
-                <Text>Back</Text>
-              </FAB>
-            </>
+                Clear History
+              </Button>
+            )}
+          </View>
+          
+          {quizHistory.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <MaterialCommunityIcons name="history" size={64} color={theme.colors.outline} />
+              <Text style={styles.emptyText}>No quiz history found</Text>
+            </View>
           ) : (
-            <FlatList
-              data={quizHistory}
-              renderItem={renderQuizItem}
-              keyExtractor={item => item.id}
-              contentContainerStyle={styles.listContent}
-            />
+            <>
+              {selectedQuiz ? (
+                <>
+                  {renderQuizDetails()}
+                  <FAB
+                    style={styles.fab}
+                    icon="arrow-left"
+                    onPress={() => setSelectedQuiz(null)}
+                  >
+                    Back
+                  </FAB>
+                </>
+              ) : (
+                <FlatList
+                  data={quizHistory}
+                  renderItem={renderQuizItem}
+                  keyExtractor={item => item.id || item._id || `quiz-${Math.random()}`}
+                  contentContainerStyle={styles.listContent}
+                />
+              )}
+            </>
           )}
         </>
       )}
@@ -425,9 +633,13 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRightWidth: 1,
     borderRightColor: '#ddd',
+    backgroundColor: '#fff',
+    overflow: 'hidden', // Ensure content doesn't overflow container
   },
   detailsWrapper: {
     flex: 2,
+    backgroundColor: '#fff',
+    overflow: 'hidden', // Ensure content doesn't overflow container
   },
   headerContainer: {
     flexDirection: 'row',
@@ -443,17 +655,21 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    paddingBottom: 32,
+    flexGrow: 1, // Allow content to grow but still be scrollable
   },
   quizItem: {
-    marginBottom: 8,
+    marginBottom: 12,
     borderRadius: 8,
     overflow: 'hidden',
+    backgroundColor: '#fff',
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
+    backgroundColor: '#fff',
   },
   emptyText: {
     fontSize: 16,
@@ -464,17 +680,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#fff',
   },
   loadingText: {
     fontSize: 16,
     marginTop: 16,
   },
   detailsContainer: {
-    flex: 1,
     padding: 16,
+    backgroundColor: '#fff',
+    flexGrow: 1, // Allow content to grow but still be scrollable
   },
   detailsCard: {
     marginBottom: 16,
+    backgroundColor: '#fff',
   },
   dateText: {
     color: '#666',
@@ -490,6 +709,9 @@ const styles = StyleSheet.create({
   },
   questionItem: {
     marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
   },
   questionType: {
     fontSize: 14,
@@ -504,6 +726,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
+    backgroundColor: '#fff',
   },
   emptyDetailsText: {
     fontSize: 16,

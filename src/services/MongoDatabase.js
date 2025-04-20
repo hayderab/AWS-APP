@@ -1,554 +1,686 @@
-// Import models directly
-const User = require('../models/User');
-const Certification = require('../models/Certification');
-const Topic = require('../models/Topic');
-const Subtopic = require('../models/Subtopic');
-const Note = require('../models/Note');
-const Quiz = require('../models/Quiz');
-const QuizResult = require('../models/QuizResult');
-
-// Import AsyncStorage with ES module syntax for React Native
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ApiService from './ApiService';
 
-// Initialize database
+// Default user ID for demo purposes - in a real app, this would come from authentication
+const DEFAULT_USER_ID = '65f9c8f7e4b0a4f9c8f7e4b0';
+
+// Flag to determine if we should use local storage fallback when API fails
+const USE_LOCAL_FALLBACK = true;
+
+// Initialize MongoDB connection
 const initialize = async () => {
-  console.log('MongoDatabase initialized');
-  // In a real app, this would connect to MongoDB
-  // For now, we'll just use AsyncStorage
+  try {
+    // Check if we have a user ID stored
+    const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+    if (!userId) {
+      console.warn('No user ID found, using default');
+    }
+    return true;
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    return false;
+  }
 };
 
-// Call initialize
-initialize();
+// Helper function to handle API errors with local storage fallback
+const apiWithFallback = async (apiCall, fallbackKey, fallbackData = []) => {
+  try {
+    // Try API call first
+    const result = await apiCall();
+    
+    // If successful, update local cache
+    if (result && USE_LOCAL_FALLBACK) {
+      await AsyncStorage.setItem(fallbackKey, JSON.stringify(result));
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`API Error - ${fallbackKey}:`, error);
+    
+    // If API fails and fallback is enabled, try local storage
+    if (USE_LOCAL_FALLBACK) {
+      console.log(`Falling back to local storage for ${fallbackKey}`);
+      const cachedData = await AsyncStorage.getItem(fallbackKey);
+      return cachedData ? JSON.parse(cachedData) : fallbackData;
+    }
+    
+    // If no fallback or fallback fails, return empty result
+    return fallbackData;
+  }
+};
+
+// Helper function to save data with fallback
+const saveWithFallback = async (apiCall, fallbackKey, data, idField = '_id') => {
+  try {
+    // Try API call first
+    const result = await apiCall();
+    
+    // If successful and fallback is enabled, update local cache
+    if (result && USE_LOCAL_FALLBACK) {
+      // Get existing data
+      const cachedDataStr = await AsyncStorage.getItem(fallbackKey);
+      const cachedData = cachedDataStr ? JSON.parse(cachedDataStr) : [];
+      
+      // Add or update the item in the cache
+      if (result[idField]) {
+        const index = cachedData.findIndex(item => item[idField] === result[idField]);
+        if (index >= 0) {
+          cachedData[index] = result;
+        } else {
+          cachedData.unshift(result);
+        }
+        await AsyncStorage.setItem(fallbackKey, JSON.stringify(cachedData));
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`API Error - Saving ${fallbackKey}:`, error);
+    
+    // If API fails and fallback is enabled, save to local storage
+    if (USE_LOCAL_FALLBACK) {
+      console.log(`Falling back to local storage for saving ${fallbackKey}`);
+      
+      try {
+        // Generate a temporary ID if needed
+        if (!data[idField]) {
+          data[idField] = `temp_${Date.now()}`;
+        }
+        
+        // Get existing data
+        const cachedDataStr = await AsyncStorage.getItem(fallbackKey);
+        const cachedData = cachedDataStr ? JSON.parse(cachedDataStr) : [];
+        
+        // Add or update the item
+        const index = cachedData.findIndex(item => item[idField] === data[idField]);
+        if (index >= 0) {
+          cachedData[index] = data;
+        } else {
+          cachedData.unshift(data);
+        }
+        
+        await AsyncStorage.setItem(fallbackKey, JSON.stringify(cachedData));
+        return data;
+      } catch (fallbackError) {
+        console.error(`Fallback Error - Saving ${fallbackKey}:`, fallbackError);
+        return null;
+      }
+    }
+    
+    return null;
+  }
+};
+
+// Helper function to delete data with fallback
+const deleteWithFallback = async (apiCall, fallbackKey, id, idField = '_id') => {
+  try {
+    // Try API call first
+    const result = await apiCall();
+    
+    // If successful and fallback is enabled, update local cache
+    if (result && USE_LOCAL_FALLBACK) {
+      const cachedDataStr = await AsyncStorage.getItem(fallbackKey);
+      if (cachedDataStr) {
+        const cachedData = JSON.parse(cachedDataStr);
+        const updatedData = cachedData.filter(item => item[idField] !== id);
+        await AsyncStorage.setItem(fallbackKey, JSON.stringify(updatedData));
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error(`API Error - Deleting from ${fallbackKey}:`, error);
+    
+    // If API fails and fallback is enabled, delete from local storage
+    if (USE_LOCAL_FALLBACK) {
+      console.log(`Falling back to local storage for deleting from ${fallbackKey}`);
+      
+      try {
+        const cachedDataStr = await AsyncStorage.getItem(fallbackKey);
+        if (cachedDataStr) {
+          const cachedData = JSON.parse(cachedDataStr);
+          const updatedData = cachedData.filter(item => item[idField] !== id);
+          await AsyncStorage.setItem(fallbackKey, JSON.stringify(updatedData));
+          return true;
+        }
+      } catch (fallbackError) {
+        console.error(`Fallback Error - Deleting from ${fallbackKey}:`, fallbackError);
+      }
+    }
+    
+    return false;
+  }
+};
 
 // User Management
-const userService = {
-  register: async (email, password, displayName) => {
+const user = {
+  getCurrentUser: async () => {
     try {
-      // For now, fall back to AsyncStorage
-      const usersJson = await AsyncStorage.getItem('users');
-      const users = usersJson ? JSON.parse(usersJson) : [];
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      if (!userId) return null;
       
-      const existingUser = users.find(u => u.email === email);
-      if (existingUser) throw new Error('User already exists');
-      
-      const newUser = {
-        _id: Date.now().toString(),
-        email,
-        password,
-        displayName,
-        createdAt: new Date().toISOString()
-      };
-      
-      users.push(newUser);
-      await AsyncStorage.setItem('users', JSON.stringify(users));
-      
-      return newUser;
+      return await apiWithFallback(
+        () => ApiService.user.getById(userId),
+        'current_user'
+      );
     } catch (error) {
-      console.error('Error registering user:', error);
-      throw error;
+      console.error('Error getting current user:', error);
+      return null;
     }
   },
   
   login: async (email, password) => {
     try {
-      // For now, fall back to AsyncStorage
-      const usersJson = await AsyncStorage.getItem('users');
-      const users = usersJson ? JSON.parse(usersJson) : [];
-      
-      const user = users.find(u => u.email === email && u.password === password);
-      if (!user) throw new Error('Invalid credentials');
-      
-      return user;
+      const user = await ApiService.user.login({ email, password });
+      if (user && user._id) {
+        await AsyncStorage.setItem('userId', user._id);
+        await AsyncStorage.setItem('current_user', JSON.stringify(user));
+        
+        // Store the JWT token separately for API requests
+        if (user.token) {
+          await AsyncStorage.setItem('token', user.token);
+        } else {
+          console.warn('No token received from login response');
+        }
+        
+        return user;
+      }
+      return null;
     } catch (error) {
       console.error('Error logging in:', error);
-      throw error;
+      return null;
     }
   },
   
-  getUserById: async (id) => {
+  register: async (userData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const usersJson = await AsyncStorage.getItem('users');
-      const users = usersJson ? JSON.parse(usersJson) : [];
-      
-      return users.find(u => u._id === id);
+      const user = await ApiService.user.register(userData);
+      if (user && user._id) {
+        await AsyncStorage.setItem('userId', user._id);
+        await AsyncStorage.setItem('current_user', JSON.stringify(user));
+        return user;
+      }
+      return null;
     } catch (error) {
-      console.error('Error getting user by ID:', error);
-      throw error;
+      console.error('Error registering user:', error);
+      return null;
     }
   }
 };
 
 // Certification Management
 const certification = {
-  addCertification: async (certData) => {
+  getAllCertifications: async () => {
     try {
-      // For now, fall back to AsyncStorage
-      const certsJson = await AsyncStorage.getItem('certifications');
-      const certs = certsJson ? JSON.parse(certsJson) : [];
-      
-      const newCert = {
-        _id: Date.now().toString(),
-        ...certData,
-        createdAt: new Date().toISOString()
-      };
-      
-      certs.push(newCert);
-      await AsyncStorage.setItem('certifications', JSON.stringify(certs));
-      
-      return newCert;
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      return await apiWithFallback(
+        () => ApiService.certification.getByUser(userId),
+        'certifications'
+      );
     } catch (error) {
-      console.error('Error adding certification:', error);
-      throw error;
-    }
-  },
-  
-  getCertificationsByUser: async (userId) => {
-    try {
-      // For now, fall back to AsyncStorage
-      const certsJson = await AsyncStorage.getItem('certifications');
-      const certs = certsJson ? JSON.parse(certsJson) : [];
-      
-      return certs.filter(cert => cert.userId === userId);
-    } catch (error) {
-      console.error('Error getting certifications by user:', error);
-      throw error;
+      console.error('Error getting certifications:', error);
+      return [];
     }
   },
   
   getCertificationById: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const certsJson = await AsyncStorage.getItem('certifications');
-      const certs = certsJson ? JSON.parse(certsJson) : [];
-      
-      return certs.find(cert => cert._id === id);
+      return await apiWithFallback(
+        () => ApiService.certification.getById(id),
+        `certification_${id}`
+      );
     } catch (error) {
-      console.error('Error getting certification by ID:', error);
-      throw error;
+      console.error('Error getting certification:', error);
+      return null;
     }
   },
   
-  updateCertificationProgress: async (id, progress) => {
+  addCertification: async (certificationData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const certsJson = await AsyncStorage.getItem('certifications');
-      const certs = certsJson ? JSON.parse(certsJson) : [];
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      const data = {
+        ...certificationData,
+        userId
+      };
       
-      const certIndex = certs.findIndex(cert => cert._id === id);
-      
-      if (certIndex !== -1) {
-        certs[certIndex].progress = progress;
-        await AsyncStorage.setItem('certifications', JSON.stringify(certs));
-        return certs[certIndex];
-      }
-      
-      throw new Error('Certification not found');
+      return await saveWithFallback(
+        () => ApiService.certification.create(data),
+        'certifications',
+        data
+      );
     } catch (error) {
-      console.error('Error updating certification progress:', error);
-      throw error;
+      console.error('Error adding certification:', error);
+      return null;
+    }
+  },
+  
+  updateCertification: async (id, updateData) => {
+    try {
+      return await saveWithFallback(
+        () => ApiService.certification.update(id, updateData),
+        'certifications',
+        { _id: id, ...updateData }
+      );
+    } catch (error) {
+      console.error('Error updating certification:', error);
+      return null;
     }
   },
   
   deleteCertification: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const certsJson = await AsyncStorage.getItem('certifications');
-      const certs = certsJson ? JSON.parse(certsJson) : [];
-      
-      const certIndex = certs.findIndex(cert => cert._id === id);
-      
-      if (certIndex !== -1) {
-        const deletedCert = certs[certIndex];
-        certs.splice(certIndex, 1);
-        await AsyncStorage.setItem('certifications', JSON.stringify(certs));
-        return deletedCert;
-      }
-      
-      throw new Error('Certification not found');
+      return await deleteWithFallback(
+        () => ApiService.certification.delete(id),
+        'certifications',
+        id
+      );
     } catch (error) {
       console.error('Error deleting certification:', error);
-      throw error;
+      return false;
     }
   }
 };
 
 // Topic Management
 const topic = {
+  getTopicsByCertification: async (certificationId) => {
+    try {
+      return await apiWithFallback(
+        () => ApiService.topic.getByCertification(certificationId),
+        `topics_${certificationId}`
+      );
+    } catch (error) {
+      console.error('Error getting topics:', error);
+      return [];
+    }
+  },
+  
+  getTopicById: async (id) => {
+    try {
+      return await apiWithFallback(
+        () => ApiService.topic.getById(id),
+        `topic_${id}`
+      );
+    } catch (error) {
+      console.error('Error getting topic:', error);
+      return null;
+    }
+  },
+  
   addTopic: async (topicData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const topicsJson = await AsyncStorage.getItem('topics');
-      const topics = topicsJson ? JSON.parse(topicsJson) : [];
-      
-      const newTopic = {
-        _id: Date.now().toString(),
-        ...topicData,
-        createdAt: new Date().toISOString()
-      };
-      
-      topics.push(newTopic);
-      await AsyncStorage.setItem('topics', JSON.stringify(topics));
-      
-      return newTopic;
+      return await saveWithFallback(
+        () => ApiService.topic.create(topicData),
+        `topics_${topicData.certificationId}`,
+        topicData
+      );
     } catch (error) {
       console.error('Error adding topic:', error);
-      throw error;
+      return null;
     }
   },
   
-  getTopicsByCertification: async (certId) => {
+  updateTopic: async (id, updateData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const topicsJson = await AsyncStorage.getItem('topics');
-      const topics = topicsJson ? JSON.parse(topicsJson) : [];
+      const topic = await MongoDatabase.topic.getTopicById(id);
+      const certificationId = topic?.certificationId || updateData.certificationId;
       
-      return topics.filter(topic => topic.certificationId === certId).sort((a, b) => a.order - b.order);
+      return await saveWithFallback(
+        () => ApiService.topic.update(id, updateData),
+        `topics_${certificationId}`,
+        { _id: id, ...updateData }
+      );
     } catch (error) {
-      console.error('Error getting topics by certification:', error);
-      throw error;
+      console.error('Error updating topic:', error);
+      return null;
     }
   },
   
-  updateTopicProgress: async (id, progress) => {
+  deleteTopic: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const topicsJson = await AsyncStorage.getItem('topics');
-      const topics = topicsJson ? JSON.parse(topicsJson) : [];
+      const topic = await MongoDatabase.topic.getTopicById(id);
+      const certificationId = topic?.certificationId;
       
-      const topicIndex = topics.findIndex(topic => topic._id === id);
-      
-      if (topicIndex !== -1) {
-        topics[topicIndex].progress = progress;
-        await AsyncStorage.setItem('topics', JSON.stringify(topics));
-        return topics[topicIndex];
-      }
-      
-      throw new Error('Topic not found');
+      return await deleteWithFallback(
+        () => ApiService.topic.delete(id),
+        `topics_${certificationId}`,
+        id
+      );
     } catch (error) {
-      console.error('Error updating topic progress:', error);
-      throw error;
+      console.error('Error deleting topic:', error);
+      return false;
     }
   }
 };
 
 // Subtopic Management
 const subtopic = {
-  addSubtopic: async (subtopicData) => {
+  getSubtopicsByTopic: async (topicId) => {
     try {
-      // For now, fall back to AsyncStorage
-      const subtopicsJson = await AsyncStorage.getItem('subtopics');
-      const subtopics = subtopicsJson ? JSON.parse(subtopicsJson) : [];
-      
-      const newSubtopic = {
-        _id: Date.now().toString(),
-        ...subtopicData,
-        createdAt: new Date().toISOString()
-      };
-      
-      subtopics.push(newSubtopic);
-      await AsyncStorage.setItem('subtopics', JSON.stringify(subtopics));
-      
-      return newSubtopic;
+      return await apiWithFallback(
+        () => ApiService.subtopic.getByTopic(topicId),
+        `subtopics_${topicId}`
+      );
     } catch (error) {
-      console.error('Error adding subtopic:', error);
-      throw error;
+      console.error('Error getting subtopics:', error);
+      return [];
     }
   },
   
-  getSubtopicsByTopic: async (topicId) => {
+  getSubtopicById: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const subtopicsJson = await AsyncStorage.getItem('subtopics');
-      const subtopics = subtopicsJson ? JSON.parse(subtopicsJson) : [];
-      
-      return subtopics.filter(subtopic => subtopic.topicId === topicId).sort((a, b) => a.order - b.order);
+      return await apiWithFallback(
+        () => ApiService.subtopic.getById(id),
+        `subtopic_${id}`
+      );
     } catch (error) {
-      console.error('Error getting subtopics by topic:', error);
-      throw error;
+      console.error('Error getting subtopic:', error);
+      return null;
+    }
+  },
+  
+  addSubtopic: async (subtopicData) => {
+    try {
+      return await saveWithFallback(
+        () => ApiService.subtopic.create(subtopicData),
+        `subtopics_${subtopicData.topicId}`,
+        subtopicData
+      );
+    } catch (error) {
+      console.error('Error adding subtopic:', error);
+      return null;
+    }
+  },
+  
+  updateSubtopic: async (id, updateData) => {
+    try {
+      const subtopic = await MongoDatabase.subtopic.getSubtopicById(id);
+      const topicId = subtopic?.topicId || updateData.topicId;
+      
+      return await saveWithFallback(
+        () => ApiService.subtopic.update(id, updateData),
+        `subtopics_${topicId}`,
+        { _id: id, ...updateData }
+      );
+    } catch (error) {
+      console.error('Error updating subtopic:', error);
+      return null;
+    }
+  },
+  
+  deleteSubtopic: async (id) => {
+    try {
+      const subtopic = await MongoDatabase.subtopic.getSubtopicById(id);
+      const topicId = subtopic?.topicId;
+      
+      return await deleteWithFallback(
+        () => ApiService.subtopic.delete(id),
+        `subtopics_${topicId}`,
+        id
+      );
+    } catch (error) {
+      console.error('Error deleting subtopic:', error);
+      return false;
     }
   }
 };
 
 // Note Management
 const note = {
-  addNote: async (noteData) => {
+  getAllNotes: async () => {
     try {
-      // For now, fall back to AsyncStorage
-      const notesJson = await AsyncStorage.getItem(`notes_${noteData.topicId}`);
-      const notes = notesJson ? JSON.parse(notesJson) : [];
-      
-      const newNote = {
-        _id: Date.now().toString(),
-        ...noteData,
-        timestamp: noteData.timestamp || new Date().toISOString()
-      };
-      
-      notes.push(newNote);
-      await AsyncStorage.setItem(`notes_${noteData.topicId}`, JSON.stringify(notes));
-      
-      return newNote;
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      return await apiWithFallback(
+        () => ApiService.note.getByUser(userId),
+        'notes'
+      );
     } catch (error) {
-      console.error('Error creating note:', error);
-      throw error;
+      console.error('Error getting notes:', error);
+      return [];
     }
   },
   
   getNotesByTopic: async (topicId) => {
     try {
-      // For now, fall back to AsyncStorage
-      const notesJson = await AsyncStorage.getItem(`notes_${topicId}`);
-      return notesJson ? JSON.parse(notesJson) : [];
+      return await apiWithFallback(
+        () => ApiService.note.getByTopic(topicId),
+        `notes_topic_${topicId}`
+      );
     } catch (error) {
       console.error('Error getting notes by topic:', error);
-      throw error;
+      return [];
     }
   },
   
   getNotesBySubtopic: async (subtopicId) => {
     try {
-      // For now, fall back to AsyncStorage
-      // This is inefficient but works for now
-      const keys = await AsyncStorage.getAllKeys();
-      const noteKeys = keys.filter(key => key.startsWith('notes_'));
-      
-      let allNotes = [];
-      for (const key of noteKeys) {
-        const notesJson = await AsyncStorage.getItem(key);
-        if (notesJson) {
-          const notes = JSON.parse(notesJson);
-          allNotes = [...allNotes, ...notes.filter(note => note.subtopicId === subtopicId)];
-        }
-      }
-      
-      return allNotes;
+      return await apiWithFallback(
+        () => ApiService.note.getBySubtopic(subtopicId),
+        `notes_subtopic_${subtopicId}`
+      );
     } catch (error) {
       console.error('Error getting notes by subtopic:', error);
-      throw error;
+      return [];
     }
   },
   
-  getAllNotes: async () => {
+  getNoteById: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const keys = await AsyncStorage.getAllKeys();
-      const noteKeys = keys.filter(key => key.startsWith('notes_'));
-      
-      let allNotes = [];
-      for (const key of noteKeys) {
-        const notesJson = await AsyncStorage.getItem(key);
-        if (notesJson) {
-          allNotes = [...allNotes, ...JSON.parse(notesJson)];
-        }
-      }
-      
-      return allNotes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      return await apiWithFallback(
+        () => ApiService.note.getById(id),
+        `note_${id}`
+      );
     } catch (error) {
-      console.error('Error getting all notes:', error);
-      throw error;
+      console.error('Error getting note:', error);
+      return null;
     }
   },
   
-  updateNote: async (id, content) => {
+  addNote: async (noteData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const keys = await AsyncStorage.getAllKeys();
-      const noteKeys = keys.filter(key => key.startsWith('notes_'));
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      const data = {
+        ...noteData,
+        userId
+      };
       
-      for (const key of noteKeys) {
-        const notesJson = await AsyncStorage.getItem(key);
-        if (notesJson) {
-          let notes = JSON.parse(notesJson);
-          const noteIndex = notes.findIndex(note => note._id === id);
-          
-          if (noteIndex !== -1) {
-            // If content is an object, use it directly
-            if (typeof content === 'object') {
-              notes[noteIndex] = {
-                ...notes[noteIndex],
-                ...content,
-                timestamp: new Date().toISOString()
-              };
-            } else {
-              // If content is a string, update the text field
-              notes[noteIndex] = {
-                ...notes[noteIndex],
-                text: content,
-                content: content,
-                timestamp: new Date().toISOString()
-              };
-            }
-            
-            await AsyncStorage.setItem(key, JSON.stringify(notes));
-            return notes[noteIndex];
-          }
-        }
-      }
+      return await saveWithFallback(
+        () => ApiService.note.create(data),
+        noteData.topicId ? `notes_topic_${noteData.topicId}` : 'notes',
+        data
+      );
+    } catch (error) {
+      console.error('Error adding note:', error);
+      return null;
+    }
+  },
+  
+  updateNote: async (id, updateData) => {
+    try {
+      const note = await MongoDatabase.note.getNoteById(id);
+      const storageKey = note?.topicId ? `notes_topic_${note.topicId}` : 'notes';
       
-      throw new Error('Note not found');
+      return await saveWithFallback(
+        () => ApiService.note.update(id, updateData),
+        storageKey,
+        { _id: id, ...updateData }
+      );
     } catch (error) {
       console.error('Error updating note:', error);
-      throw error;
+      return null;
     }
   },
   
   deleteNote: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const keys = await AsyncStorage.getAllKeys();
-      const noteKeys = keys.filter(key => key.startsWith('notes_'));
+      const note = await MongoDatabase.note.getNoteById(id);
+      const storageKey = note?.topicId ? `notes_topic_${note.topicId}` : 'notes';
       
-      for (const key of noteKeys) {
-        const notesJson = await AsyncStorage.getItem(key);
-        if (notesJson) {
-          let notes = JSON.parse(notesJson);
-          const noteIndex = notes.findIndex(note => note._id === id);
-          
-          if (noteIndex !== -1) {
-            const deletedNote = notes[noteIndex];
-            notes.splice(noteIndex, 1);
-            await AsyncStorage.setItem(key, JSON.stringify(notes));
-            return deletedNote;
-          }
-        }
-      }
-      
-      throw new Error('Note not found');
+      return await deleteWithFallback(
+        () => ApiService.note.delete(id),
+        storageKey,
+        id
+      );
     } catch (error) {
       console.error('Error deleting note:', error);
-      throw error;
+      return false;
     }
   }
 };
 
 // Quiz Management
-const quizService = {
-  createQuiz: async (quizData) => {
+const quiz = {
+  getQuizzesByTopic: async (topicId) => {
     try {
-      // For now, fall back to AsyncStorage
-      const quizzesJson = await AsyncStorage.getItem('quizzes');
-      const quizzes = quizzesJson ? JSON.parse(quizzesJson) : [];
-      
-      const newQuiz = {
-        _id: Date.now().toString(),
-        ...quizData,
-        createdAt: new Date().toISOString()
-      };
-      
-      quizzes.push(newQuiz);
-      await AsyncStorage.setItem('quizzes', JSON.stringify(quizzes));
-      
-      return newQuiz;
+      return await apiWithFallback(
+        () => ApiService.quiz.getByTopic(topicId),
+        `quizzes_topic_${topicId}`
+      );
     } catch (error) {
-      console.error('Error creating quiz:', error);
-      throw error;
+      console.error('Error getting quizzes by topic:', error);
+      return [];
     }
   },
   
   getQuizzesBySubtopic: async (subtopicId) => {
     try {
-      // For now, fall back to AsyncStorage
-      const quizzesJson = await AsyncStorage.getItem('quizzes');
-      const quizzes = quizzesJson ? JSON.parse(quizzesJson) : [];
-      
-      return quizzes.filter(quiz => quiz.subtopicId === subtopicId);
+      return await apiWithFallback(
+        () => ApiService.quiz.getBySubtopic(subtopicId),
+        `quizzes_subtopic_${subtopicId}`
+      );
     } catch (error) {
       console.error('Error getting quizzes by subtopic:', error);
-      throw error;
+      return [];
     }
   },
   
-  saveQuizResult: async (resultData) => {
+  getQuizById: async (id) => {
     try {
-      // For now, fall back to AsyncStorage
-      const resultsJson = await AsyncStorage.getItem('quiz_results');
-      const results = resultsJson ? JSON.parse(resultsJson) : [];
-      
-      const newResult = {
-        _id: Date.now().toString(),
-        ...resultData,
-        createdAt: new Date().toISOString()
-      };
-      
-      results.push(newResult);
-      await AsyncStorage.setItem('quiz_results', JSON.stringify(results));
-      
-      return newResult;
+      return await apiWithFallback(
+        () => ApiService.quiz.getById(id),
+        `quiz_${id}`
+      );
     } catch (error) {
-      console.error('Error saving quiz result:', error);
-      throw error;
+      console.error('Error getting quiz:', error);
+      return null;
     }
   },
   
-  getQuizResultsByUser: async (userId) => {
+  addQuiz: async (quizData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const resultsJson = await AsyncStorage.getItem('quiz_results');
-      const results = resultsJson ? JSON.parse(resultsJson) : [];
-      
-      return results.filter(result => result.userId === userId).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return await saveWithFallback(
+        () => ApiService.quiz.create(quizData),
+        quizData.topicId ? `quizzes_topic_${quizData.topicId}` : 'quizzes',
+        quizData
+      );
     } catch (error) {
-      console.error('Error getting quiz results by user:', error);
-      throw error;
+      console.error('Error adding quiz:', error);
+      return null;
     }
   },
   
   saveQuizToHistory: async (quizData) => {
     try {
-      // For now, fall back to AsyncStorage
-      const historyJson = await AsyncStorage.getItem('quiz_history');
-      const history = historyJson ? JSON.parse(historyJson) : [];
-      
-      const newQuiz = {
-        _id: Date.now().toString(),
-        ...quizData,
-        isHistory: true,
-        createdAt: new Date().toISOString()
-      };
-      
-      history.push(newQuiz);
-      await AsyncStorage.setItem('quiz_history', JSON.stringify(history));
-      
-      return newQuiz;
+      return await saveWithFallback(
+        () => ApiService.quiz.saveToHistory(quizData),
+        'quiz_history',
+        quizData
+      );
     } catch (error) {
       console.error('Error saving quiz to history:', error);
-      throw error;
+      return null;
     }
   },
   
   getQuizHistory: async () => {
     try {
-      // For now, fall back to AsyncStorage
-      const historyJson = await AsyncStorage.getItem('quiz_history');
-      return historyJson ? JSON.parse(historyJson) : [];
+      return await apiWithFallback(
+        () => ApiService.quiz.getHistory(),
+        'quiz_history'
+      );
     } catch (error) {
       console.error('Error getting quiz history:', error);
-      throw error;
+      return [];
     }
   },
   
   clearQuizHistory: async () => {
     try {
-      // For now, fall back to AsyncStorage
-      await AsyncStorage.setItem('quiz_history', JSON.stringify([]));
-      return true;
+      const result = await ApiService.quiz.clearHistory();
+      if (result) {
+        await AsyncStorage.setItem('quiz_history', JSON.stringify([]));
+      }
+      return result;
     } catch (error) {
       console.error('Error clearing quiz history:', error);
-      throw error;
+      // Try local fallback
+      if (USE_LOCAL_FALLBACK) {
+        await AsyncStorage.setItem('quiz_history', JSON.stringify([]));
+        return true;
+      }
+      return false;
     }
   }
 };
 
-// Export as both default and named export for compatibility
+// Quiz Result Management
+const quizResult = {
+  saveQuizResult: async (resultData) => {
+    try {
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      const data = {
+        ...resultData,
+        userId
+      };
+      
+      return await saveWithFallback(
+        () => ApiService.quizResult.save(data),
+        'quiz_results',
+        data
+      );
+    } catch (error) {
+      console.error('Error saving quiz result:', error);
+      return null;
+    }
+  },
+  
+  getQuizResultsByUser: async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId') || DEFAULT_USER_ID;
+      return await apiWithFallback(
+        () => ApiService.quizResult.getByUser(userId),
+        'quiz_results'
+      );
+    } catch (error) {
+      console.error('Error getting quiz results by user:', error);
+      return [];
+    }
+  },
+  
+  getQuizResultsByQuiz: async (quizId) => {
+    try {
+      return await apiWithFallback(
+        () => ApiService.quizResult.getByQuiz(quizId),
+        `quiz_results_${quizId}`
+      );
+    } catch (error) {
+      console.error('Error getting quiz results by quiz:', error);
+      return [];
+    }
+  }
+};
+
+// Export all services
 const MongoDatabase = {
   initialize,
-  userService,
+  user,
   certification,
   topic,
   subtopic,
   note,
-  quizService
+  quiz,
+  quizService: quiz, // Add alias for backward compatibility
+  quizResult
 };
 
-export { MongoDatabase };
 export default MongoDatabase;

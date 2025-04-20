@@ -17,6 +17,7 @@ import TopicDetailScreen from '../screens/main/TopicDetailScreen';
 import SubtopicScreen from '../screens/main/SubtopicScreen';
 import QuizScreenNew from '../screens/quiz/QuizScreenNew';
 import NotesScreen from '../screens/main/NotesScreen';
+import NoteEditor from '../screens/main/NoteEditor';
 import QuizHistoryScreen from '../screens/quiz/QuizHistoryScreen';
 
 // Create stacks for each tab
@@ -83,6 +84,15 @@ function HomeStackScreen() {
         options={{ 
           headerTitle: 'My Notes',
           headerTitleStyle: isWeb ? styles.webHeaderTitle : {}
+        }} 
+      />
+      <HomeStack.Screen 
+        name="NoteEditor" 
+        component={NoteEditor} 
+        options={{ 
+          headerShown: false,
+          presentation: 'modal',
+          animation: 'slide_from_bottom'
         }} 
       />
     </HomeStack.Navigator>
