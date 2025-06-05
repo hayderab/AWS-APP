@@ -276,7 +276,7 @@ const UploadScreen = ({ navigation }) => {
         [
           { 
             text: 'View Topics', 
-            onPress: () => navigation.navigate('TopicList', { certification: newCertificationData }) 
+            onPress: () => navigation.navigate('Home', { screen: 'TopicList', params: { certification: newCertificationData } }) 
           }
         ]
       );
@@ -307,20 +307,18 @@ const UploadScreen = ({ navigation }) => {
               Select PDF File
             </Button>
             
-            {file ? (
+            {file && (
               <View style={styles.filePreview}>
                 <MaterialCommunityIcons 
-                  name="file-pdf" 
-                  size={40} 
+                  name="file-pdf-box" 
+                  size={30} 
                   color={theme.colors.primary} 
-                  style={styles.fileIcon} 
+                  style={styles.fileIcon}
                 />
-                <Text numberOfLines={1} style={styles.fileName}>{file.name}</Text>
-                <Chip icon="file-pdf" style={styles.fileSize}>
-                  {(file.size / (1024 * 1024)).toFixed(2)} MB
-                </Chip>
+                <Text style={styles.fileName} numberOfLines={1} ellipsizeMode="middle">{file.name}</Text>
+                {file.size && <Chip icon="file-pdf-box" style={styles.fileSize}>{formatFileSize(file.size)}</Chip>}
               </View>
-            ) : null}
+            )}
             
             {error ? (
               <Text style={styles.errorText}>{error}</Text>
@@ -434,8 +432,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   fileIcon: {
-    width: 40,
-    height: 40,
+    width: 30,
+    height: 30,
     marginRight: 12,
   },
   fileName: {

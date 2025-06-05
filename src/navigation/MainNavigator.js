@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Platform, Dimensions } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { MaterialCommunityIcons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useTheme } from 'react-native-paper';
 import { isWeb } from '../utils/platformUtils';
 import WebNavigation from '../components/WebNavigation';
@@ -19,6 +19,7 @@ import QuizScreenNew from '../screens/quiz/QuizScreenNew';
 import NotesScreen from '../screens/main/NotesScreen';
 import NoteEditor from '../screens/main/NoteEditor';
 import QuizHistoryScreen from '../screens/quiz/QuizHistoryScreen';
+import PerformanceScreen from '../screens/PerformanceScreen';
 
 // Create stacks for each tab
 const HomeStack = createNativeStackNavigator();
@@ -75,6 +76,14 @@ function HomeStackScreen() {
         component={QuizHistoryScreen} 
         options={{ 
           headerTitle: 'Quiz History',
+          headerTitleStyle: isWeb ? styles.webHeaderTitle : {}
+        }} 
+      />
+      <HomeStack.Screen 
+        name="Performance" 
+        component={PerformanceScreen} 
+        options={{ 
+          headerTitle: 'Performance Analysis',
           headerTitleStyle: isWeb ? styles.webHeaderTitle : {}
         }} 
       />
@@ -220,6 +229,17 @@ const MainNavigator = () => {
           headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="home" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Performance"
+        component={PerformanceScreen}
+        options={{
+          headerTitle: 'Performance Analysis',
+          headerTitleStyle: isWeb ? styles.webHeaderTitle : {},
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="analytics" color={color} size={size} />
           ),
         }}
       />

@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 // Base URL for the API - using ngrok URL
-const API_URL = 'https://4f2e-82-39-120-134.ngrok-free.app/api'; // Your ngrok URL
+// const API_URL = 'https://764d-82-39-120-134.ngrok-free.app/api'; // Your ngrok URL
+const API_URL = 'http://10.0.2.2:5000/api'; // Localhost URL
 
 console.log(`Using API URL: ${API_URL}`);
 
@@ -456,6 +457,28 @@ const ApiService = {
         return response.data;
       } catch (error) {
         console.error('API Error - Delete Quiz Result:', error);
+        throw error;
+      }
+    },
+  },
+
+  // Analytics endpoints
+  analytics: {
+    getPerformanceByUser: async (userId) => {
+      try {
+        const response = await api.get(`/analytics/performance/${userId}`);
+        return response.data;
+      } catch (error) {
+        console.error('API Error - Get User Performance:', error);
+        throw error;
+      }
+    },
+    getReadinessByUser: async (userId) => {
+      try {
+        const response = await api.get(`/analytics/readiness/${userId}`);
+        return response.data;
+      } catch (error) {
+        console.error('API Error - Get User Readiness:', error);
         throw error;
       }
     },

@@ -189,8 +189,61 @@ const QuizHistoryScreen = ({ navigation }) => {
         }]
       };
       
-      // Use the existing questions from the quiz history
-      const existingQuestions = quiz.questions || [];
+      // Process the existing questions to ensure they have all required properties
+      const existingQuestions = (quiz.questions || []).map(q => {
+        // Create a properly structured question object based on its type
+        const baseQuestion = {
+          type: q.type,
+          question: q.question,
+          explanation: q.explanation || '',
+          difficulty: q.difficulty || 'medium',
+          isAnswered: false, // Reset for retake
+          userAnswer: null   // Reset for retake
+        };
+        
+        // Add type-specific properties
+        switch (q.type) {
+          case 'MultipleChoiceQuestion':
+            return {
+              ...baseQuestion,
+              choices: q.choices || [],
+              correctAnswer: q.correctAnswer
+            };
+          case 'MultipleResponseQuestion':
+            return {
+              ...baseQuestion,
+              choices: q.choices || [],
+              correctAnswers: q.correctAnswers || []
+            };
+          case 'OrderingQuestion':
+            return {
+              ...baseQuestion,
+              items: q.items || [],
+              correctOrder: q.correctOrder || []
+            };
+          case 'MatchingQuestion':
+            return {
+              ...baseQuestion,
+              prompts: q.prompts || [],
+              responses: q.responses || [],
+              correctPairs: q.correctPairs || {}
+            };
+          case 'CaseStudyQuestion':
+            return {
+              ...baseQuestion,
+              scenario: q.scenario || '',
+              subQuestions: (q.subQuestions || []).map(sq => ({
+                type: sq.type || 'MultipleChoiceQuestion',
+                question: sq.question || '',
+                choices: sq.choices || [],
+                correctAnswer: sq.correctAnswer,
+                explanation: sq.explanation || ''
+              }))
+            };
+          default:
+            return baseQuestion;
+        }
+      });
       
       // Log the navigation parameters
       console.log('Navigation params:', {
@@ -203,7 +256,8 @@ const QuizHistoryScreen = ({ navigation }) => {
       navigation.navigate('Quiz', {
         topic: topicData,
         subtopic: topicData.subtopics[0],
-        preGeneratedQuestions: existingQuestions
+        preGeneratedQuestions: existingQuestions,
+        isRetake: true // Flag to indicate this is a retake
       });
       
       console.log('Navigated to Quiz screen for retake with existing questions');
