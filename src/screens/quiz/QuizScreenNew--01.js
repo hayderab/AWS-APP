@@ -435,52 +435,168 @@ const QuizScreen = ({ route, navigation }) => {
         >
           Clear All Matches
         </Button>
+      )}
+    </View>
+  );
+
+  // Render case study question
+  const renderCaseStudy = () => (
+    <View style={styles.caseStudyContainer}>
+      <View style={styles.scenarioCard}>
         <Text style={styles.scenarioTitle}>Scenario:</Text>
         <Text style={styles.scenarioContent}>{currentQuestion.scenario}</Text>
-      </Card>
+      </View>
       
-      {/* Sub-questions */}
-      {currentQuestion.subQuestions.map((subQuestion, index) => {
-        const isAnswered = answer[index] !== undefined;
-        
-        return (
-          <Card key={index} style={styles.subQuestionCard}>
-            <Text style={styles.subQuestionTitle}>Question {index + 1}:</Text>
-            <Text style={styles.subQuestionText}>{subQuestion.question}</Text>
-            
+      {currentQuestion.subQuestions.map((subQuestion, subIndex) => (
+        <View key={subIndex} style={styles.subQuestionCard}>
+          <Text style={styles.subQuestionTitle}>Question {subIndex + 1}:</Text>
+          <Text style={styles.subQuestionText}>{subQuestion.question}</Text>
+          
+          {subQuestion.type === 'MultipleChoiceQuestion' && (
             <RadioButton.Group
               onValueChange={value => {
-                const newAnswer = [...answer];
-                newAnswer[index] = value;
-                handleAnswer(newAnswer);
+                const newAnswers = [...(userAnswers[currentQuestionIndex] || [])];
+                newAnswers[subIndex] = value;
+                handleAnswer(newAnswers);
               }}
-              value={answer[index]}
+              value={userAnswers[currentQuestionIndex]?.[subIndex]}
             >
               {subQuestion.choices.map((choice, choiceIndex) => (
-                <RadioButton.Item
-                  key={choiceIndex}
-                  label={choice}
-                  value={choice}
-                  status={answer[index] === choice ? 'checked' : 'unchecked'}
-                  style={styles.radioItem}
-                />
+                <View key={choiceIndex} style={styles.subChoiceContainer}>
+                  <RadioButton.Item
+                    label={choice}
+                    value={choice}
+                    position="leading"
+                  />
+                </View>
               ))}
             </RadioButton.Group>
-            
-            {showResult && (
-              <View style={styles.subQuestionResult}>
+          )}
+          
+          {subQuestion.type === 'MultipleResponseQuestion' && (
+            <View>
+              {subQuestion.choices.map((choice, choiceIndex) => (
+                <View key={choiceIndex} style={styles.subChoiceContainer}>
+                  <Checkbox.Item
+                    label={choice}
+                    status={
+                      userAnswers[currentQuestionIndex]?.[subIndex]?.includes(choice)
+                        ? 'checked'
+                        : 'unchecked'
+                    }
+                    position="leading"
+                    onPress={() => {
+                      const newAnswers = [...(userAnswers[currentQuestionIndex] || [])];
+                      const currentSubAnswers = newAnswers[subIndex] || [];
+                      
+                      if (currentSubAnswers.includes(choice)) {
+                        newAnswers[subIndex] = currentSubAnswers.filter(c => c !== choice);
+                      } else {
+                        newAnswers[subIndex] = [...currentSubAnswers, choice];
+                      }
+                      
+                      handleAnswer(newAnswers);
+                    }}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      ))}
+    </View>
+  );
+
+  // Render question content based on type
+  const renderQuestionContent = () => {
+    if (!currentQuestion) return null;
+
+    switch (currentQuestion.type) {
+      case 'MultipleChoiceQuestion':
+        return renderMultipleChoice();
+      case 'MultipleResponseQuestion':
+        return renderMultipleResponse();
+      case 'OrderingQuestion':
+        return renderOrdering();
+      case 'MatchingQuestion':
+        return renderMatching();
+      case 'CaseStudyQuestion':
+        return renderCaseStudy();
+      default:
+        return <Text>Unsupported question type: {currentQuestion.type}</Text>;
+    }
+  };
+
+  // Render answer result
+  const renderResult = () => {
+    if (!showResult || !currentQuestion) return null;
+
+    const result = currentQuestion.checkAnswer(userAnswers[currentQuestionIndex]);
+    return (
+      <Card style={styles.resultCard}>
+        <Card.Content>
+          <Text style={[
+            styles.resultText,
+            { color: result.isCorrect ? 'green' : 'red' }
+          ]}>
+            {result.isCorrect ? 'Correct!' : 'Incorrect'}
+          </Text>
+          <Text style={styles.explanationText}>{result.explanation}</Text>
+          
+          {!result.isCorrect && (
+            <View style={styles.correctAnswerContainer}>
+              <Text style={styles.correctAnswerTitle}>Correct Answer:</Text>
+              {renderCorrectAnswer(result)}
+            </View>
+          )}
+        </Card.Content>
+      </Card>
+    );
+  };
+
+  // Render correct answer based on question type
+  const renderCorrectAnswer = (result) => {
+    if (!currentQuestion) return null;
+    
+    switch (currentQuestion.type) {
+      case 'MultipleChoiceQuestion':
+        return <Text>{result.correctAnswer}</Text>;
+      case 'MultipleResponseQuestion':
+        return (
+          <View>
+            {result.correctAnswer.map((answer, index) => (
+              <Text key={index} style={styles.correctAnswerItem}>• {answer}</Text>
+            ))}
+          </View>
+        );
+      case 'OrderingQuestion':
+        return (
+          <View>
+            {result.correctAnswer.map((item, index) => (
+              <Text key={index} style={styles.correctAnswerItem}>{index + 1}. {item}</Text>
+            ))}
+          </View>
+        );
+      case 'MatchingQuestion':
+        return (
+          <View>
+            {result.correctAnswer.map((pair, index) => (
+              <Text key={index} style={styles.correctAnswerItem}>{pair.prompt}: {pair.response}</Text>
+            ))}
+          </View>
+        );
+      case 'CaseStudyQuestion':
+        return (
+          <View>
+            {result.results.map((subResult, index) => (
+              <View key={index} style={styles.subQuestionResult}>
                 <Text style={styles.subQuestionResultTitle}>
-                  {/* Check if checkAnswer exists, otherwise do a direct comparison */}
-                  {typeof subQuestion.checkAnswer === 'function' ? 
-                    subQuestion.checkAnswer(answer[index]).isCorrect ? '✓ Correct' : '✗ Incorrect' : 
-                    answer[index] === subQuestion.correctAnswer ? '✓ Correct' : '✗ Incorrect'}
+                  Question {index + 1}: {subResult.isCorrect ? 'Correct' : 'Incorrect'}
                 </Text>
-                <Text style={styles.correctAnswerText}>
-                  Correct answer: {subQuestion.correctAnswer}
-                </Text>
-                <Text style={styles.subQuestionExplanation}>
-                  {subQuestion.explanation || 'No explanation available.'}
-                </Text>
+                {!subResult.isCorrect && (
+                  <View>
+                    <Text style={styles.correctAnswerItem}>
+                      Correct answer: {Array.isArray(subResult.correctAnswer) 
                         ? subResult.correctAnswer.join(', ') 
                         : subResult.correctAnswer}
                     </Text>
@@ -547,16 +663,9 @@ const QuizScreen = ({ route, navigation }) => {
         case 'CaseStudyQuestion':
           // For case study, we need to check each subquestion
           if (question.subQuestions && Array.isArray(answer)) {
-            // Create a custom check for each subquestion
             const subResults = question.subQuestions.map((subQ, i) => {
               const subAnswer = answer[i];
-              // Check if the subquestion has its own checkAnswer method
-              if (typeof subQ.checkAnswer === 'function') {
-                return subQ.checkAnswer(subAnswer).isCorrect;
-              } else {
-                // Simple equality check if no method exists
-                return subAnswer === subQ.correctAnswer;
-              }
+              return subAnswer === subQ.correctAnswer;
             });
             isCorrect = subResults.every(result => result === true);
             correctAnswer = question.subQuestions.map(sq => sq.correctAnswer);
@@ -625,6 +734,23 @@ const QuizScreen = ({ route, navigation }) => {
         try {
           // Only save the quiz result for analytics
           if (user?._id) {
+            // Get topic and subtopic IDs from route params
+            const topicId = route.params?.topic?.id;
+            const subtopicId = route.params?.subtopic?.id;
+            
+            console.log('Saving quiz result with topic info:', { 
+              topicId, 
+              topicTitle: route.params?.topic?.title,
+              subtopicId,
+              subtopicTitle: route.params?.subtopic?.title
+            });
+            
+            // Ensure the topicId is a valid MongoDB ObjectId format
+            // MongoDB ObjectIds are 24-character hex strings
+            const isValidObjectId = (id) => {
+              return id && typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+            };
+            
             const quizResultData = {
               quizId: `retake-${Date.now()}`, // Generate a unique ID for the retake
               userId: user._id,
@@ -635,8 +761,14 @@ const QuizScreen = ({ route, navigation }) => {
                 isCorrect: result.isCorrect
               })),
               timeSpent: timeSpent,
-              topicId: topic?.id || 'unknown',
-              subtopicId: topic?.subtopics?.[0]?.id || 'unknown',
+              // Ensure topicId is properly formatted
+              topicId: isValidObjectId(topicId) ? topicId : undefined,
+              // Include topic title for reference
+              topicTitle: route.params?.topic?.title || 'Unknown Topic',
+              // Ensure subtopicId is properly formatted
+              subtopicId: isValidObjectId(subtopicId) ? subtopicId : undefined,
+              // Include subtopic title for reference
+              subtopicTitle: route.params?.subtopic?.title || 'Unknown Subtopic',
               isRetake: true // Mark as a retake for analytics
             };
             
@@ -740,6 +872,23 @@ const QuizScreen = ({ route, navigation }) => {
           await ApiService.quiz.saveToHistory(quizHistoryObject);
           console.log('Quiz history saved successfully to MongoDB');
           
+          // Get topic and subtopic IDs directly from route params
+          const topicId = route.params?.topic?.id;
+          const subtopicId = route.params?.subtopic?.id;
+          
+          console.log('Saving new quiz result with topic info:', { 
+            topicId, 
+            topicTitle: route.params?.topic?.title,
+            subtopicId,
+            subtopicTitle: route.params?.subtopic?.title
+          });
+          
+          // Ensure the topicId is a valid MongoDB ObjectId format
+          // MongoDB ObjectIds are 24-character hex strings
+          const isValidObjectId = (id) => {
+            return id && typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+          };
+          
           // Save quiz result
           const quizResultData = {
             quizId: quizHistoryObject.id,
@@ -751,8 +900,14 @@ const QuizScreen = ({ route, navigation }) => {
               isCorrect: result.isCorrect
             })),
             timeSpent: timeSpent,
-            topicId: topic?.id || 'unknown', // Add topic ID for analytics
-            subtopicId: topic?.subtopics?.[0]?.id || 'unknown' // Add subtopic ID for analytics
+            // Ensure topicId is properly formatted
+            topicId: isValidObjectId(topicId) ? topicId : undefined,
+            // Include topic title for reference
+            topicTitle: route.params?.topic?.title || 'Unknown Topic',
+            // Ensure subtopicId is properly formatted
+            subtopicId: isValidObjectId(subtopicId) ? subtopicId : undefined,
+            // Include subtopic title for reference
+            subtopicTitle: route.params?.subtopic?.title || 'Unknown Subtopic'
           };
           
           await ApiService.quizResult.save(quizResultData);

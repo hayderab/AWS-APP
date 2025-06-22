@@ -15,10 +15,31 @@ class QuizQuestion {
   checkAnswer() {
     throw new Error('CheckAnswer method must be implemented by child classes');
   }
+
+  // Metadata about the question type - can be overridden by subclasses
+  static getMetadata() {
+    return {
+      name: this.name,
+      displayName: this.name.replace(/Question$/, ''),
+      description: 'Base question type',
+      contentTypes: ['text'], // What content types this question works well with
+      difficultyLevels: ['easy', 'medium', 'hard'],
+      requiresSpecialUI: false
+    };
+  }
 }
 
 // Multiple Choice Question (one correct answer out of four options)
 export class MultipleChoiceQuestion extends QuizQuestion {
+  static getMetadata() {
+    return {
+      ...super.getMetadata(),
+      description: 'One correct answer out of four options',
+      contentTypes: ['text', 'code', 'diagram'],
+      difficultyLevels: ['easy', 'medium', 'hard'],
+      requiresSpecialUI: false
+    };
+  }
   constructor(question, choices, correctAnswer, explanation, difficulty = 'medium') {
     super(question, explanation, difficulty);
     this.choices = choices;
@@ -46,6 +67,15 @@ export class MultipleChoiceQuestion extends QuizQuestion {
 
 // Multiple Response Question (two or more correct answers out of five or more options)
 export class MultipleResponseQuestion extends QuizQuestion {
+  static getMetadata() {
+    return {
+      ...super.getMetadata(),
+      description: 'Two or more correct answers out of five or more options',
+      contentTypes: ['text', 'code', 'list'],
+      difficultyLevels: ['medium', 'hard'],
+      requiresSpecialUI: false
+    };
+  }
   constructor(question, choices, correctAnswers, explanation, difficulty = 'medium') {
     super(question, explanation, difficulty);
     this.choices = choices;
@@ -84,6 +114,15 @@ export class MultipleResponseQuestion extends QuizQuestion {
 
 // Ordering Question (3-5 responses that must be placed in correct order)
 export class OrderingQuestion extends QuizQuestion {
+  static getMetadata() {
+    return {
+      ...super.getMetadata(),
+      description: '3-5 responses that must be placed in correct order',
+      contentTypes: ['process', 'sequence', 'steps'],
+      difficultyLevels: ['medium', 'hard'],
+      requiresSpecialUI: true
+    };
+  }
   constructor(question, items, correctOrder, explanation, difficulty = 'medium') {
     super(question, explanation, difficulty);
     this.items = items;
@@ -120,6 +159,15 @@ export class OrderingQuestion extends QuizQuestion {
 
 // Matching Question (matching responses with 3-7 prompts)
 export class MatchingQuestion extends QuizQuestion {
+  static getMetadata() {
+    return {
+      ...super.getMetadata(),
+      description: 'Matching responses with 3-7 prompts',
+      contentTypes: ['terms', 'definitions', 'relationships'],
+      difficultyLevels: ['medium', 'hard'],
+      requiresSpecialUI: true
+    };
+  }
   constructor(question, prompts, responses, correctPairs, explanation, difficulty = 'medium') {
     super(question, explanation, difficulty);
     this.prompts = prompts;
@@ -160,6 +208,15 @@ export class MatchingQuestion extends QuizQuestion {
 
 // Case Study Question (scenario with multiple questions)
 export class CaseStudyQuestion extends QuizQuestion {
+  static getMetadata() {
+    return {
+      ...super.getMetadata(),
+      description: 'Scenario with multiple questions',
+      contentTypes: ['scenario', 'case study', 'complex problem'],
+      difficultyLevels: ['hard'],
+      requiresSpecialUI: true
+    };
+  }
   constructor(question, scenario, subQuestions, explanation, difficulty = 'medium') {
     super(question, explanation, difficulty);
     this.scenario = scenario;
@@ -197,19 +254,100 @@ export class CaseStudyQuestion extends QuizQuestion {
   }
 }
 
-export const QuizTypes = {
-  MULTIPLE_CHOICE: 'MultipleChoiceQuestion',
-  MULTIPLE_RESPONSE: 'MultipleResponseQuestion',
-  ORDERING: 'OrderingQuestion',
-  MATCHING: 'MatchingQuestion',
-  CASE_STUDY: 'CaseStudyQuestion'
-};
+// Registry to manage quiz types
+class QuizTypeRegistry {
+  constructor() {
+    this.types = new Map();
+    this.typeConstants = {};
+  }
 
+  // Register a question type
+  register(questionClass) {
+    const typeName = questionClass.name;
+    this.types.set(typeName, questionClass);
+    
+    // Create a constant for this type
+    const constantName = typeName.replace(/Question$/, '').toUpperCase();
+    this.typeConstants[constantName] = typeName;
+    
+    console.log(`Registered quiz type: ${typeName}`);
+    return this; // For chaining
+  }
+
+  // Unregister a question type
+  unregister(typeName) {
+    if (this.types.has(typeName)) {
+      this.types.delete(typeName);
+      
+      // Remove the constant
+      Object.keys(this.typeConstants).forEach(key => {
+        if (this.typeConstants[key] === typeName) {
+          delete this.typeConstants[key];
+        }
+      });
+      
+      console.log(`Unregistered quiz type: ${typeName}`);
+    }
+    return this; // For chaining
+  }
+
+  // Get a question class by type name
+  getQuestionClass(typeName) {
+    if (!this.types.has(typeName)) {
+      throw new Error(`Quiz type not registered: ${typeName}`);
+    }
+    return this.types.get(typeName);
+  }
+
+  // Create a new question instance
+  createQuestion(typeName, ...args) {
+    const QuestionClass = this.getQuestionClass(typeName);
+    return new QuestionClass(...args);
+  }
+
+  // Get all registered question types
+  getAllTypes() {
+    return Array.from(this.types.keys());
+  }
+
+  // Get metadata for all registered question types
+  getAllMetadata() {
+    const metadata = {};
+    this.types.forEach((questionClass, typeName) => {
+      metadata[typeName] = questionClass.getMetadata();
+    });
+    return metadata;
+  }
+
+  // Get metadata for a specific question type
+  getMetadata(typeName) {
+    const QuestionClass = this.getQuestionClass(typeName);
+    return QuestionClass.getMetadata();
+  }
+}
+
+// Create and export the registry
+export const quizTypeRegistry = new QuizTypeRegistry();
+
+// Register all the built-in question types
+quizTypeRegistry
+  .register(MultipleChoiceQuestion)
+  .register(MultipleResponseQuestion)
+  .register(OrderingQuestion)
+  .register(MatchingQuestion)
+  .register(CaseStudyQuestion);
+
+// Export the type constants for convenience
+export const QuizTypes = quizTypeRegistry.typeConstants;
+
+// Export all question types and the registry
 export default {
+  QuizQuestion,
   MultipleChoiceQuestion,
   MultipleResponseQuestion,
   OrderingQuestion,
   MatchingQuestion,
   CaseStudyQuestion,
+  quizTypeRegistry,
   QuizTypes
 };
